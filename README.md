@@ -1,12 +1,10 @@
 # migration_handler
-Introduces BUILDscript a declarative language for describing the schemas of a graph and Changeset a declarative language for keeping track of changes between schemas
+Introduces BUILDscript a declarative language for creating staticly typed schemas for [TypedGraphs][typed_graph-git] and maintaining a history schemas.
 
-[![Crates.io](https://img.shields.io/crates/v/migration_handler.svg)](https://crates.io/crates/migration_handler)
-[![docs.rs](https://img.shields.io/docsrs/migration_handler)](https://docs.rs/migration_handler/latest/migration_handler/)
-
+[typed_graph-git]: https://github.com/build-aau/typed_graph "typed_graph latest"
 ## Getting started
 ### Creating a project
-migration_handler is mainly controled using a command line interface. However all functionlities in the cli is also throught the cli module.
+migration_handler is mainly controled using a command line interface. However all functionlities in the cli is also available throught the cli module.
 
 To create a new project run
 ```
@@ -26,28 +24,41 @@ node B{};
 edge AB(A => B){};
 edge ABSingle(A =>[n <= 1] B){};
 ```
-and want to use it in typed_graph. We export it using the export rust function.
-The export function need the path to where it should generate the files.
-So given a project like this:
+and want to use it in typed_graph. We export first need to export it to a crate:
+To do this we create a new crate where all the generated files can be saved to.
 
+The file structure should look like this:
 ```
-|-- schemas
-|-- changesets
+|-- project
+|   |-- schemas
+|   |-- changesets
 |-- src
 |   |-- lib.rs
 |-- Cargo.toml
 ```
 
-running export rust
+with a Cargo.toml file like this
+```toml
+[package]
+name = "my_first_typed_graph"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+typed_graph = "^0.1.0"
+```
+
+We can the generate the schema as so
 ```
 migration_handler export rust src/graph
 ```
 
-Will produce a bunch of files that can be imported like any other model in rust
-> export rust will only add new files never delete old ones.
+This will produce a bunch of files that can be imported like any other module in rust
+> migration_handler will only ever create new files never delete old ones.
 ```
-|-- schemas
-|-- changesets
+|-- project
+|   |-- schemas
+|   |-- changesets
 |-- src
 |   |-- graph
 |   |   |-- v0_0

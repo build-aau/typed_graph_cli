@@ -1,5 +1,5 @@
 [package]
-name = "typed_graph_rust_gen"
+name = "migration_handler"
 version = "0.1.0"
 edition = "2021"
 
@@ -17,5 +17,5 @@ thiserror = "1.0.49"
 diff = []
 
 [[bin]]
-name = "migration"
+name = "migration_handler"
 path = "src/bin/main.rs"

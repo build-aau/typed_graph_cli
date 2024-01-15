@@ -326,6 +326,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f665ee40bc4a3c5590afb1e9677db74a508659dfd71e126420da8274909a0167"
 
 [[package]]
+name = "migration_handler"
+version = "0.1.0"
+dependencies = [
+ "build_changeset_lang",
+ "build_script_lang",
+ "build_script_shared",
+ "clap",
+ "serde",
+ "thiserror",
+]
+
+[[package]]
 name = "minimal-lexical"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -562,18 +574,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.39",
-]
-
-[[package]]
-name = "typed_graph_rust_gen"
-version = "0.1.0"
-dependencies = [
- "build_changeset_lang",
- "build_script_lang",
- "build_script_shared",
- "clap",
- "serde",
- "thiserror",
 ]
 
 [[package]]

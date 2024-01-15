@@ -1,6 +1,6 @@
-use typed_graph_rust_gen::cli::*;
+use migration_handler::cli::*;
 use clap::Parser;
-use typed_graph_rust_gen::GenResult;
+use migration_handler::GenResult;
 
 fn main() -> GenResult<()> {
     let args = Args::parse();

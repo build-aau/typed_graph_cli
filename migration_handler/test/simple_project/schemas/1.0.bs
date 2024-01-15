@@ -1,0 +1,5 @@
+<"Simple_project">
+
+node MainNode {
+    field1: String
+};

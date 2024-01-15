@@ -1,0 +1,14 @@
+syntax: regexp
+target/
+
+syntax: glob
+*.egg-info
+*.orig
+.idea/
+.vscode/
+*.iml
+__pycache__
+.hg
+.hgignore
+project/schemas
+project/changesets

@@ -1,0 +1,29 @@
+
+node AAAA {
+    field1: String,
+    field2: String,
+};
+
+node BBBB {
+    field1: Enum1,
+    field2: String
+};
+
+enum Enum2 {
+    Field2,
+    Field1
+};
+
+edge AB(A -> B) {
+    count: usize
+};
+
+edge AA(A -> A)[1<=n] {
+};
+
+enum Enum1 {
+    AA,
+    BB,
+    CC,
+    DD
+};

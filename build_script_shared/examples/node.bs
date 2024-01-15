@@ -1,0 +1,6 @@
+MainNode[0<=n] {
+    hello: String,
+    hi: There,
+    how: Are,
+    You: JustAsking,
+}

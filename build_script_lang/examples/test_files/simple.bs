@@ -1,0 +1,33 @@
+<"V0.0">
+
+node Student {
+    name: String,
+    age: usize,
+    // ad
+    study_status: StudyStatus
+};
+
+node Class {
+    name: String,
+};
+
+enum StudyStatus {
+    Active,
+    InActive,
+    Pending
+};
+
+// Represent a with n students
+node Course {
+    name: String,
+};
+
+// Each student can either attend the class or not
+edge Attends(Student => Class)[n<=1] {
+
+};
+
+// Each class can have any number of students
+edge HasStudents(Class => Student) {
+
+};

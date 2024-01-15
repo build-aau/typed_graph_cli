@@ -1,0 +1,16 @@
+[package]
+name = "build_changeset_lang"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+nom = "7.1.3"
+thiserror = "1.0.49"
+build_script_shared = { path = "../build_script_shared" }
+build_script_lang = { path = "../build_script_lang" }
+fake = { version = "2.9", features = ["derive"] }
+
+[dev-dependencies]
+notify = { version = "6.1.1", features = ["serde"] }

@@ -1,0 +1,8 @@
+[workspace]
+resolver = "2"
+members = [
+    "build_script_shared",
+    "build_script_lang", 
+    "build_changeset_lang", 
+    "migration_handler"
+]

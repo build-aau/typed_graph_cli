@@ -1,0 +1,31 @@
+<V1>
+
+node A {
+    field1: String,
+    field2: String,
+};
+
+node B {
+    field1: Enum1,
+    field2: Enum1
+};
+
+enum Enum2 {
+    Field2,
+    Field1,
+    field3
+};
+
+edge AB(A => B) {
+    count: String
+};
+
+edge AA(A =>[n<10] A) {
+};
+
+enum Enum1 {
+    AA,
+    BB,
+    CC,
+    DD
+};

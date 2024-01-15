@@ -1,0 +1,7 @@
+<"V0.2">
+
+node MainNode {
+    field1: String,
+    field2: String,
+    field3: String
+};

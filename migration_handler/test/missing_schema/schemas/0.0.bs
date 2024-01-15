@@ -1,0 +1,5 @@
+<"V0.0">
+
+node MainNode {
+    field1: String
+};

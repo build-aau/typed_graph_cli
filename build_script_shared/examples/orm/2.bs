@@ -1,0 +1,30 @@
+
+node AAAA {
+    field1: String,
+    field2: String,
+};
+
+node CCCC {
+    field1: Enum1,
+    field2: sfsdf
+};
+
+enum Enum2 {
+    Field2,
+    Field1,
+    field3
+};
+
+edge AB(A -> B) {
+    count: String
+};
+
+edge AA(A -> A)[1<=n] {
+};
+
+enum Enum1 {
+    AA,
+    BB,
+    CC,
+    DD
+};

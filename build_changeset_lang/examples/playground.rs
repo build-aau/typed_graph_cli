@@ -27,16 +27,19 @@ fn version_folder_listener() -> impl FnMut(notify::Result<Event>) -> () {
                         }
                     }
                     let path = event.paths.get(0).unwrap();
-                    let filename: usize = path
+                    let filename = path
                         .file_name()
-                        .unwrap()
-                        .to_str()
-                        .unwrap()
-                        .split(".")
-                        .next()
-                        .unwrap()
-                        .parse()
-                        .unwrap();
+                        .and_then(|path| path.to_str())
+                        .and_then(|path| path.split(".").next())
+                        .and_then(|path| path.parse().ok());
+
+                    let filename: usize = if let Some(filename) = filename {
+                        filename
+                    } else {
+                        println!("Failed to parse filename as integer. For instance 123.bs");
+                        return;
+                    };
+
                     println!(" ------ Saved {}.bs ------", filename);
                     sleep(Duration::from_millis(1));
 
@@ -129,8 +132,8 @@ fn main() -> ExampleResult<()> {
         test_dir.to_str().unwrap()
     );
     // Automatically select the best implementation for your platform.
-    let a = version_folder_listener();
-    let mut watcher = notify::recommended_watcher(a)?;
+    let listerner_fn = version_folder_listener();
+    let mut watcher = notify::recommended_watcher(listerner_fn)?;
 
     // Add a path to be watched. All files and directories at that path and
     // below will be monitored for changes.

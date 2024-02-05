@@ -543,7 +543,7 @@ dependencies = [
 
 [[package]]
 name = "typed_graph_cli"
-version = "0.1.0"
+version = "0.1.3"
 dependencies = [
  "build_changeset_lang",
  "build_script_lang",

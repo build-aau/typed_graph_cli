@@ -4,5 +4,5 @@ members = [
     "build_script_shared",
     "build_script_lang", 
     "build_changeset_lang", 
-    "migration_handler"
+    "typed_graph_cli"
 ]

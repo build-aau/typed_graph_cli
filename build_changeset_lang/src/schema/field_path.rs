@@ -5,10 +5,12 @@ use build_script_shared::parsers::*;
 use build_script_shared::InputType;
 use fake::Dummy;
 use nom::character::complete::char;
+use nom::combinator::cut;
 use nom::error::context;
 use nom::sequence::{pair, preceded};
-use nom::combinator::cut;
 use std::fmt::Display;
+
+use crate::{ChangeSetResult, ChangeSetError};
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash, Dummy)]
 pub struct FieldPath<I> {
@@ -25,29 +27,112 @@ impl<I> FieldPath<I> {
     }
 
     pub fn new_path(root: Ident<I>, path: Vec<Ident<I>>) -> FieldPath<I> {
-        FieldPath {
-            root,
-            path
-        }
+        FieldPath { root, path }
     }
 
-    pub fn retrieve_fields<'a>(&'a self, schema: &'a mut Schema<I>) -> Option<(&'a mut Fields<I>, &'a Ident<I>)> {
-        schema
+    pub fn get_field_name(&self) -> Option<&Ident<I>> {
+        self.path.last()
+    }
+
+    pub fn get_field_name_res(&self) -> ChangeSetResult<&Ident<I>> {
+        self.get_field_name()
+            .ok_or_else(|| {
+                ChangeSetError::InvalidAction {
+                    action: format!("retrieving field name"),
+                    reason: format!("Failed to find field name in path {}", self),
+                }
+            })
+    }
+
+    pub fn retrieve_field<'a>(
+        &'a self,
+        schema: &'a mut Schema<I>,
+    ) -> ChangeSetResult<&'a mut Fields<I>> {
+        if self.path.is_empty() {
+            return Err(ChangeSetError::InvalidAction {
+                action: format!("retrieving fields"),
+                reason: format!("Attempted to resolve type path without type {}", self),
+            });
+        }
+
+        let ty = schema
             .content
             .iter_mut()
-            .find(|s| s.get_type() == &self.root)?
-            .get_fields_mut()
-            .zip(Some(&self.path[0]))
+            .find(|s| s.get_type() == &self.root)
+            .ok_or_else(|| {
+                ChangeSetError::InvalidAction {
+                    action: format!("retrieving fields"),
+                    reason: format!("Failed to find type for {}", self),
+                }
+            })?;
+            
+        if self.path.len() == 1 {
+            let fields = ty.get_fields_mut()
+                .ok_or_else(|| {
+                    ChangeSetError::InvalidAction {
+                        action: format!("retrieving fields"),
+                        reason: format!("Failed to find fields in type for {}", self),
+                    }
+                })?;
+
+            return Ok(fields);
+        }
+
+        match ty {
+            SchemaStm::Enum(e) => {
+                if self.path.len() != 2 {
+                    return Err(ChangeSetError::InvalidAction {
+                        action: format!("retrieving fields"),
+                        reason: format!("Failed to resolve {} to field in enum since it is to long", self),
+                    })
+                }
+                let varient_name = &self.path[0];
+                let varient = e.get_varient_mut(varient_name)
+                    .ok_or_else(|| {
+                        ChangeSetError::InvalidAction {
+                            action: format!("retrieving fields"),
+                            reason: format!("Failed to find varient for {}", self),
+                        }
+                    })?;
+                
+                let varient_fields = match varient {
+                    EnumVarient::Struct { fields, .. } => Ok(fields),
+                    EnumVarient::Unit { .. } => Err(ChangeSetError::InvalidAction {
+                        action: format!("retrieving fields"),
+                        reason: format!("Cannot retrieve fields from unit varient at {}", self),
+                    }),
+                };
+
+                return varient_fields;
+            }
+            SchemaStm::Edge(_)
+            | SchemaStm::Node(_)
+            | SchemaStm::Import(_)
+            | SchemaStm::Struct(_) => {
+                return Err(ChangeSetError::InvalidAction {
+                    action: format!("retrieving fields"),
+                    reason: format!("Attempted to retrieve field {} from a to shallow type", self),
+                })
+            }
+        };
+
+        /*
+        Err(ChangeSetError::InvalidAction {
+            action: format!("retrieving fields"),
+            reason: format!("Failed to find filed at {}", self),
+        })
+        */
+        
     }
 
     /// Move from one input type to another
-    pub fn map<O, F>(self, f: F) -> FieldPath<O> 
+    pub fn map<O, F>(self, f: F) -> FieldPath<O>
     where
-        F: Fn(I) -> O + Copy
+        F: Fn(I) -> O + Copy,
     {
         FieldPath {
             root: self.root.map(f),
-            path: self.path.into_iter().map(|p| p.map(f)).collect()
+            path: self.path.into_iter().map(|p| p.map(f)).collect(),
         }
     }
 }
@@ -57,12 +142,9 @@ impl<I: InputType> ParserDeserialize<I> for FieldPath<I> {
         let (s, (root, path)) = context(
             "Parsing FieldPath",
             pair(
-                Ident::ident, 
-                preceded(
-                    ws(char('.')), 
-                    cut(punctuated(Ident::ident, '.'))
-                )
-            )
+                Ident::ident,
+                preceded(ws(char('.')), cut(punctuated(Ident::ident, '.'))),
+            ),
         )(s)?;
 
         Ok((s, FieldPath { root, path }))
@@ -70,12 +152,17 @@ impl<I: InputType> ParserDeserialize<I> for FieldPath<I> {
 }
 
 impl<I> ParserSerialize for FieldPath<I> {
-    fn compose<W: std::fmt::Write>(&self, f: &mut W) -> build_script_shared::error::ComposerResult<()> {
-        self.root.compose(f)?;
+    fn compose<W: std::fmt::Write>(
+        &self,
+        f: &mut W,
+        ctx: ComposeContext
+    ) -> build_script_shared::error::ComposerResult<()> {
+        let field_path_ctx = ctx.set_indents(0);
+        self.root.compose(f, ctx)?;
         write!(f, ".")?;
         let iter = self.path.iter().enumerate();
         for (i, seg) in iter {
-            seg.compose(f)?;
+            seg.compose(f, field_path_ctx)?;
             if i + 1 != self.path.len() {
                 write!(f, ".")?;
             }
@@ -110,4 +197,4 @@ where
     }
 }
 
-compose_test!{field_path_compose, FieldPath<I>}
+compose_test! {field_path_compose, FieldPath<I>}

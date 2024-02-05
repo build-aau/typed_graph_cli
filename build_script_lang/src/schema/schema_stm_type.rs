@@ -1,4 +1,3 @@
-use std::fmt::Display;
 use build_script_shared::error::*;
 use build_script_shared::parsers::*;
 use build_script_shared::*;
@@ -7,6 +6,7 @@ use nom::branch::*;
 use nom::bytes::complete::*;
 use nom::combinator::*;
 use nom::error::context;
+use std::fmt::Display;
 
 #[derive(PartialEq, Eq, Debug, Clone, Copy, Hash, Dummy)]
 pub enum SchemaStmType {
@@ -27,7 +27,7 @@ impl<I: InputType> ParserDeserialize<I> for SchemaStmType {
                 value(SchemaStmType::Enum, tag("enum")),
                 value(SchemaStmType::Struct, tag("struct")),
                 value(SchemaStmType::Import, tag("import")),
-            ))
+            )),
         )(s)?;
 
         Ok((s, schema))
@@ -35,7 +35,7 @@ impl<I: InputType> ParserDeserialize<I> for SchemaStmType {
 }
 
 impl ParserSerialize for SchemaStmType {
-    fn compose<W: std::fmt::Write>(&self, f: &mut W) -> ComposerResult<()> {
+    fn compose<W: std::fmt::Write>(&self, f: &mut W, ctx: ComposeContext) -> ComposerResult<()> {
         match self {
             SchemaStmType::Node => write!(f, "node"),
             SchemaStmType::Edge => write!(f, "edge"),
@@ -49,10 +49,9 @@ impl ParserSerialize for SchemaStmType {
 
 impl Display for SchemaStmType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let ser = self.serialize_to_string()
-        .map_err(|_| std::fmt::Error)?;
+        let ser = self.serialize_to_string().map_err(|_| std::fmt::Error)?;
         write!(f, "{}", ser)
     }
 }
 
-compose_test!{schema_type_compose, SchemaStmType}
+compose_test! {schema_type_compose, SchemaStmType}

@@ -1,27 +1,26 @@
-use std::hash::Hash;
 use crate::compose_test;
-use crate::input_marker::InputType;
 use crate::error::ParserResult;
+use crate::input_marker::InputType;
 use crate::parsers::*;
+use fake::*;
 use nom::character::complete::*;
 use nom::error::context;
-use fake::*;
 use rand::seq::SliceRandom;
+use serde::{Deserialize, Serialize};
+use std::hash::Hash;
 
-#[derive(Debug, Clone, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialOrd, Ord, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(bound = "I: Default + Clone")]
 pub struct AttributeKeyValue<I> {
     pub key: Ident<I>,
     pub value: Ident<I>,
-    mark: Mark<I>
+    #[serde(skip)]
+    mark: Mark<I>,
 }
 
 impl<I> AttributeKeyValue<I> {
     pub fn new(key: Ident<I>, value: Ident<I>, mark: Mark<I>) -> AttributeKeyValue<I> {
-        AttributeKeyValue {
-            key,
-            value,
-            mark
-        }
+        AttributeKeyValue { key, value, mark }
     }
 
     /// Move from one input type to another
@@ -32,52 +31,28 @@ impl<I> AttributeKeyValue<I> {
         AttributeKeyValue {
             key: self.key.map(f),
             value: self.value.map(f),
-            mark: self.mark.map(f)
+            mark: self.mark.map(f),
         }
     }
 }
 
-impl<I: InputType> ParserDeserialize<I>  for AttributeKeyValue<I> {
+impl<I: InputType> ParserDeserialize<I> for AttributeKeyValue<I> {
     fn parse(s: I) -> ParserResult<I, Self> {
         let (s, ((key, value), mark)) = context(
-                "Parsing AttributeKeyValue",
-                marked(
-                    key_value(Ident::ident, char('='), Ident::ident),
-                )
+            "Parsing AttributeKeyValue",
+            marked(key_value(Ident::ident, char('='), Ident::ident)),
         )(s)?;
 
-        Ok((
-            s,
-            AttributeKeyValue { 
-                key,
-                value,
-                mark
-            }
-        ))
+        Ok((s, AttributeKeyValue { key, value, mark }))
     }
 }
 
 impl<I> ParserSerialize for AttributeKeyValue<I> {
-    fn compose<W: std::fmt::Write>(&self, f: &mut W) -> crate::error::ComposerResult<()> {
+    fn compose<W: std::fmt::Write>(&self, f: &mut W, ctx: ComposeContext) -> crate::error::ComposerResult<()> {
         write!(f, "{} = {}", self.key, self.value)?;
         Ok(())
     }
 }
-
-impl<I> Hash for AttributeKeyValue<I> {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.key.hash(state);
-        self.value.hash(state);
-    }
-}
-
-impl<I> PartialEq for AttributeKeyValue<I> {
-    fn eq(&self, other: &Self) -> bool {
-        self.key == other.key && self.value == other.value
-    }
-}
-
-impl<I> Eq for AttributeKeyValue<I> {}
 
 impl<I> Marked<I> for AttributeKeyValue<I> {
     fn marker(&self) -> &Mark<I> {
@@ -90,7 +65,7 @@ impl<I: Dummy<Faker>> Dummy<Faker> for AttributeKeyValue<I> {
         AttributeKeyValue {
             key: SimpleIdentDummy.fake_with_rng(rng),
             value: SimpleIdentDummy.fake_with_rng(rng),
-            mark: Faker.fake_with_rng(rng)
+            mark: Faker.fake_with_rng(rng),
         }
     }
 }
@@ -102,9 +77,9 @@ impl<I: Dummy<Faker>> Dummy<AllowedKeyValueAttribute> for AttributeKeyValue<I> {
         AttributeKeyValue {
             key: Ident::new(key.to_string(), Faker.fake_with_rng(rng)),
             value: SimpleIdentDummy.fake_with_rng(rng),
-            mark: Faker.fake_with_rng(rng)
+            mark: Faker.fake_with_rng(rng),
         }
     }
 }
 
-compose_test!{attribute_key_value_compose_test, AttributeKeyValue<I>}
+compose_test! {attribute_key_value_compose_test, AttributeKeyValue<I>}

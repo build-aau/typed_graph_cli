@@ -1,19 +1,20 @@
-use crate::input_marker::InputType;
 use crate::error::{ParserError, ParserErrorKind, ParserResult};
-use nom::{IResult, Parser, Err};
+use crate::input_marker::InputType;
+use nom::branch::alt;
 use nom::bytes::complete::*;
+use nom::character::complete::*;
 use nom::combinator::*;
-use nom::error::{context, ContextError, ParseError};
+use nom::error::{context, ContextError, ErrorKind, ParseError};
 use nom::multi::*;
 use nom::sequence::*;
-use nom::character::complete::*;
+use nom::{Err, IResult, Parser};
 
 use super::Mark;
 
 /// Add context to the error stream
-/// 
+///
 /// This is different from nom::error::context in that it takes a String and node a static String slice
-/// 
+///
 /// This allows the context to be generated at runtime using the format macro or ToString
 pub fn owned_context<I: Clone, F, Context, O>(
     ctx: Context,
@@ -36,9 +37,11 @@ where
     }
 }
 
-
 /// Functions the same way as nom::error::append_error but uses ParserErrorKind instead of nom::error::ErrorKind
-pub fn append_parser_error<I: Clone, F, O>(mut f: F, kind: ParserErrorKind) -> impl FnMut(I) -> ParserResult<I, O>
+pub fn append_parser_error<I: Clone, F, O>(
+    mut f: F,
+    kind: ParserErrorKind,
+) -> impl FnMut(I) -> ParserResult<I, O>
 where
     F: Parser<I, O, ParserError<I>>,
 {
@@ -54,7 +57,7 @@ where
 }
 
 /// Parse a u32
-/// 
+///
 /// This also supports the use om _ anywhere in the middle of the number
 pub fn u32<I>(s: I) -> ParserResult<I, u32>
 where
@@ -98,15 +101,21 @@ where
 {
     let (s, res) = preceded(
         pair(char('0'), char('x')),
-        fold_many_m_n(8, 16, satisfy(|c| c.is_digit(16)), move || Vec::new(), |mut acc, c| {
-            acc.push(c.to_digit(16).unwrap_or_default() as u64);
-            acc
-        })
+        fold_many_m_n(
+            8,
+            16,
+            satisfy(|c| c.is_digit(16)),
+            move || Vec::new(),
+            |mut acc, c| {
+                acc.push(c.to_digit(16).unwrap_or_default() as u64);
+                acc
+            },
+        ),
     )(s)?;
 
     let mut total: u64 = 0;
     for i in 0..res.len() {
-        total += res[res.len() - 1 - i] << i*4;
+        total += res[res.len() - 1 - i] << i * 4;
     }
 
     Ok((s, total))
@@ -138,10 +147,10 @@ where
 }
 
 /// Parse a key value pair with a custom seperator inbetween
-/// 
-/// This is very much akin to separated_pair 
-/// with the one difference that if the key and seperator is parsed 
-/// then the value is expected to be there 
+///
+/// This is very much akin to separated_pair
+/// with the one difference that if the key and seperator is parsed
+/// then the value is expected to be there
 /// otherwise the parser will fail
 pub fn key_value<I, O1, O2, O3, Sep, K, V>(
     key: K,
@@ -155,44 +164,34 @@ where
     V: Parser<I, O3, ParserError<I>>,
 {
     context(
-        "Parsing KeyValue", 
-        separated_pair(
-            key,
-            ws(seperator),
-            cut(context("Expected value", value)),
-        )
+        "Parsing KeyValue",
+        separated_pair(key, ws(seperator), cut(context("Expected value", value))),
     )
 }
 
 /// Parse a token surrounded by specific chars
 ///
 /// This is most commonly used for (), {} or []
-pub fn surrounded<I, O, E, P>(
-    before: char,
-    p: P,
-    after: char,
-) -> impl FnMut(I) -> IResult<I, O, E>
+pub fn surrounded<I, O, E, P>(before: char, p: P, after: char) -> impl FnMut(I) -> IResult<I, O, E>
 where
     I: InputType,
     E: ParseError<I> + ContextError<I>,
     P: Parser<I, O, E>,
 {
-    context("Parsing Surround", 
+    context(
+        "Parsing Surround",
         delimited(
-            ws(char(before)), 
-            p, 
-            ws(context("Expected closing character", cut(
-                char(after)
-            )))
-        )
+            ws(char(before)),
+            p,
+            ws(context("Expected closing character", cut(char(after)))),
+        ),
     )
 }
 
 /// Parse a punctuated list of tokens
-pub fn punctuated<I, O, E, P>(
-    mut p: P,
-    seperator: char,
-) -> impl FnMut(I) -> IResult<I, Vec<O>, E>
+/// 
+/// This is most commonly used for a, b, c or a | b | c
+pub fn punctuated<I, O, E, P>(mut p: P, seperator: char) -> impl FnMut(I) -> IResult<I, Vec<O>, E>
 where
     I: InputType,
     E: ParseError<I> + ContextError<I>,
@@ -202,7 +201,16 @@ where
         // First parse one object
         let (s, head) = context("Parsing Punctuated", opt(ws(&mut p)))(s)?;
         // Then parse every following object
-        let (s, mut tail) = context("Parsing Punctuated", many0(preceded(ws(char(seperator)), &mut p)))(s)?;
+        let (s, mut tail) = context(
+            "Parsing Punctuated",
+            many0(preceded(ws(char(seperator)), &mut p)),
+        )(s)?;
+
+        // Provide propper error message in case the seperator was missing
+        let (s, _) = alt((
+            preceded(peek(ws(&mut p)), cut(char(seperator))), 
+            success(' ')
+        ))(s)?;
         // Remove trailing comma
         let (s, _) = opt(ws(char(seperator)))(s)?;
 
@@ -214,7 +222,6 @@ where
         Ok((s, tail))
     }
 }
-
 
 #[test]
 fn string_test() {
@@ -278,9 +285,17 @@ fn punctuated_test() {
         punctuated(tag("a"), ',')("a,a,a,a,a,"),
         IResult::<&str, _>::Ok(("", vec!["a", "a", "a", "a", "a"]))
     );
+    // The parser fails with expected ','
     assert_eq!(
         punctuated(tag("a"), ',')("aa,a,a,a"),
-        IResult::<&str, _>::Ok(("a,a,a,a", vec!["a"]))
+        IResult::<&str, _>::Err(Err::Failure(nom::error::Error {
+            input: "a,a,a,a",
+            code: ErrorKind::Char
+        }))
+    );
+    assert_eq!(
+        punctuated(tag("a"), ',')("ab,a,a,a,a,"),
+        IResult::<&str, _>::Ok(("b,a,a,a,a,", vec!["a"]))
     );
     assert_eq!(
         punctuated(tag("a"), ',')("a,,a,a,a,a,"),

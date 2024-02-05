@@ -1,20 +1,23 @@
-use super::{AttributeKeyValue, AttributeFunction};
-use std::hash::Hash;
+use super::{AttributeFunction, AttributeKeyValue};
 use crate::compose_test;
-use crate::input_marker::InputType;
 use crate::error::ParserResult;
+use crate::input_marker::InputType;
 use crate::parsers::*;
-use nom::sequence::*;
-use nom::character::complete::*;
-use nom::error::context;
-use nom::combinator::map;
-use nom::branch::alt;
 use fake::*;
+use nom::branch::alt;
+use nom::character::complete::*;
+use nom::combinator::map;
+use nom::error::context;
+use nom::sequence::*;
+use serde::{Deserialize, Serialize};
+use std::hash::Hash;
 
-#[derive(Debug, Clone, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialOrd, Ord, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(bound = "I: Default + Clone")]
+#[serde(tag = "type")]
 pub enum Attribute<I> {
     KeyValue(AttributeKeyValue<I>),
-    Function(AttributeFunction<I>)
+    Function(AttributeFunction<I>),
 }
 
 impl<I> Attribute<I> {
@@ -30,7 +33,7 @@ impl<I> Attribute<I> {
     }
 }
 
-impl<I: InputType> ParserDeserialize<I>  for Attribute<I> {
+impl<I: InputType> ParserDeserialize<I> for Attribute<I> {
     fn parse(s: I) -> ParserResult<I, Self> {
         context(
             "Partin Attribute",
@@ -40,53 +43,33 @@ impl<I: InputType> ParserDeserialize<I>  for Attribute<I> {
                     '(',
                     alt((
                         map(AttributeKeyValue::parse, Attribute::KeyValue),
-                        map(AttributeFunction::parse, Attribute::Function)
+                        map(AttributeFunction::parse, Attribute::Function),
                     )),
-                    ')'
-                )
-            )
+                    ')',
+                ),
+            ),
         )(s)
     }
 }
 
 impl<I> ParserSerialize for Attribute<I> {
-    fn compose<W: std::fmt::Write>(&self, f: &mut W) -> crate::error::ComposerResult<()> {
-        write!(f, "@(")?;
+    fn compose<W: std::fmt::Write>(&self, f: &mut W, ctx: ComposeContext) -> crate::error::ComposerResult<()> {
+        let indents = ctx.create_indents();
+        write!(f, "{indents}@(")?;
         match self {
-            Attribute::Function(value) => value.compose(f)?,
-            Attribute::KeyValue(value) => value.compose(f)?
+            Attribute::Function(value) => value.compose(f, ctx)?,
+            Attribute::KeyValue(value) => value.compose(f, ctx)?,
         }
         write!(f, ")")?;
         Ok(())
     }
 }
 
-impl<I> Hash for Attribute<I> {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        match self {
-            Attribute::Function(value) => value.hash(state),
-            Attribute::KeyValue(value) => value.hash(state)
-        }
-    }
-}
-
-impl<I> PartialEq for Attribute<I> {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Attribute::Function(value), Attribute::Function(value1)) => value.eq(value1),
-            (Attribute::KeyValue(value), Attribute::KeyValue(value1)) => value.eq(value1),
-            _ => false
-        }
-    }
-}
-
-impl<I> Eq for Attribute<I> {}
-
 impl<I> Marked<I> for Attribute<I> {
     fn marker(&self) -> &Mark<I> {
         match self {
             Attribute::Function(value) => value.marker(),
-            Attribute::KeyValue(value) => value.marker()
+            Attribute::KeyValue(value) => value.marker(),
         }
     }
 }
@@ -95,7 +78,7 @@ impl<I: Dummy<Faker>> Dummy<Faker> for Attribute<I> {
     fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
         match rng.gen_range(0..=1) {
             0 => Attribute::KeyValue(AttributeKeyValue::dummy_with_rng(config, rng)),
-            _ => Attribute::Function(AttributeFunction::dummy_with_rng(config, rng))
+            _ => Attribute::Function(AttributeFunction::dummy_with_rng(config, rng)),
         }
     }
 }
@@ -105,7 +88,7 @@ impl<I: Dummy<Faker>> Dummy<AllowedAttributes> for Attribute<I> {
     fn dummy_with_rng<R: Rng + ?Sized>(config: &AllowedAttributes, rng: &mut R) -> Self {
         match rng.gen_range(0..2) {
             0 => Attribute::KeyValue(AttributeKeyValue::dummy_with_rng(&config.0, rng)),
-            _ => Attribute::Function(AttributeFunction::dummy_with_rng(&config.1, rng))
+            _ => Attribute::Function(AttributeFunction::dummy_with_rng(&config.1, rng)),
         }
     }
 }
@@ -122,4 +105,4 @@ impl<I: Dummy<Faker>> Dummy<AllowedFunctionAttribute> for Attribute<I> {
     }
 }
 
-compose_test!{attribute_compose_test, Attribute<I>}
+compose_test! {attribute_compose_test, Attribute<I>}

@@ -1,15 +1,17 @@
 use build_script_lang::schema::EnumExp;
+use build_script_lang::schema::EnumVarient;
+use build_script_lang::schema::Fields;
 use build_script_lang::schema::SchemaStmType;
 use build_script_shared::parsers::Attributes;
 
-use crate::ChangeSetError;
-use crate::ChangeSetResult;
 use crate::schema::*;
 use crate::traits::ChangeSetBuilder;
+use crate::ChangeSetError;
+use crate::ChangeSetResult;
 
 impl<I> ChangeSetBuilder<I> for EnumExp<I>
 where
-    I: Clone + Default
+    I: Clone + Default + PartialEq,
 {
     fn build_changeset_with_path(
         &self,
@@ -30,37 +32,201 @@ where
             });
         }
 
-        let mut changes: Vec<_> = new_version
+        // Check which varients are new
+        let mut added_varients = Vec::new();
+        let new_varient_iter = new_version.varients.iter().enumerate();
+        for (order, varient) in new_varient_iter {
+            if self.has_varient(varient.name()) {
+                continue;
+            }
+
+            added_varients.push(SingleChange::AddedVarient(AddedVarient {
+                comments: varient.comments().get_doc_comments(),
+                type_name: self.name.clone(),
+                varient_name: varient.name().clone(),
+                varient_type: AddedVarientType::from(varient),
+                order: order as u64
+            }));
+
+            let field_changes = match varient {
+                EnumVarient::Struct { fields, name, .. } => {
+                    let new_path = FieldPath::new_path(
+                        self.name.clone(), 
+                        vec![name.clone()]
+                    );
+
+                    Fields::default().build_changeset_with_path(fields, Some(new_path))?
+                },
+                EnumVarient::Unit { .. } => ChangeSet::default()
+            };
+
+            for change in field_changes.changes {
+                added_varients.push(change);
+            }
+        }
+
+        // Check which varients are old
+        let removed_varients = self
             .varients
             .iter()
-            .filter(|(varient, _)| !self.varients.contains_key(varient))
-            .map(|(varient, comments)| SingleChange::AddedVarient(AddedVarient{
-                comments: comments.get_doc_comments(),
-                type_name: self.name.clone(),
-                varient_name: varient.clone(),
-            }))
+            .filter(|varient| !new_version.has_varient(varient.name()))
+            .map(|varient| {
+                SingleChange::RemovedVarient(RemovedVarient {
+                    type_name: self.name.clone(),
+                    varient_name: varient.name().clone(),
+                })
+            });
+        
+        // And finally which varients has changed
+        let mut edited_varients = Vec::new();
+        let varient_iter = self.varients.iter().enumerate();
+        for (order, varient) in varient_iter {
+            let new_varient_order = new_version.get_varient(varient.name());
+            if new_varient_order.is_none() {
+                continue;
+            }
+            if let Some(new_vairent) = new_varient_order{
+
+                let new_path = FieldPath::new_path(
+                    self.name.clone(), 
+                    vec![varient.name().clone()]
+                );
+    
+                match (varient, new_vairent) {
+                    (EnumVarient::Struct { fields: fields1, .. }, EnumVarient::Struct { fields: fields2, .. }) => {
+                        let field_changes = fields1
+                            .build_changeset_with_path(&fields2, Some(new_path))?;
+                        
+                        for change in field_changes.changes {
+                            edited_varients.push(change);
+                        }
+    
+                        let new_doc_comments = new_version.comments.get_doc_comments();
+                        if &new_doc_comments != &self.comments.get_doc_comments() {
+                            edited_varients.push(SingleChange::EditedType(EditedType {
+                                comments: new_doc_comments,
+                                attributes: Attributes::default(),
+                                type_type: SchemaStmType::Enum,
+                                type_name: self.name.clone(),
+                            }));
+                        }
+                    }
+                    (EnumVarient::Struct { ..}, EnumVarient::Unit { .. }) => {
+                        edited_varients.push(SingleChange::RemovedVarient(RemovedVarient {
+                            type_name: self.name.clone(),
+                            varient_name: varient.name().clone(),
+                        }));
+                        edited_varients.push(SingleChange::AddedVarient(AddedVarient {
+                            comments: new_vairent.comments().get_doc_comments(),
+                            type_name: self.name.clone(),
+                            varient_name: varient.name().clone(),
+                            varient_type: AddedVarientType::Unit,
+                            order: order as u64
+                        }));
+                    }
+                    (EnumVarient::Unit { .. }, EnumVarient::Struct { fields, .. }) => {
+    
+                        edited_varients.push(SingleChange::RemovedVarient(RemovedVarient {
+                            type_name: self.name.clone(),
+                            varient_name: varient.name().clone(),
+                        }));
+                        edited_varients.push(SingleChange::AddedVarient(AddedVarient {
+                            comments: new_vairent.comments().get_doc_comments(),
+                            type_name: self.name.clone(),
+                            varient_name: varient.name().clone(),
+                            varient_type: AddedVarientType::Struct,
+                            order: order as u64
+                        }));
+
+                        let field_changes = Fields::default()
+                            .build_changeset_with_path(fields, Some(new_path))?;
+                        
+                        for change in field_changes.changes {
+                            edited_varients.push(change);
+                        }
+
+                    }
+                    (EnumVarient::Unit { .. }, EnumVarient::Unit { .. }) => {
+                        let new_doc_comments = new_version.comments.get_doc_comments();
+                        if &new_doc_comments != &self.comments.get_doc_comments() {
+                            edited_varients.push(SingleChange::EditedType(EditedType {
+                                comments: new_doc_comments,
+                                attributes: Attributes::default(),
+                                type_type: SchemaStmType::Enum,
+                                type_name: self.name.clone(),
+                            }));
+                        }
+                    }
+                }
+            }
+        }
+
+        // Check which varients has moved
+        let old_varient_order: Vec<_> = self.varients
+            .iter()
+            .map(|v| v.name())
+            .cloned()
             .collect();
 
-        let removed_fields = self
-            .varients
+        let new_varient_order: Vec<_> = new_version.varients
             .iter()
-            .filter(|(varient, _)| !new_version.varients.contains_key(varient))
-            .map(|(varient, _)| SingleChange::RemovedVarient(RemovedVarient{
-                type_name: self.name.clone(),
-                varient_name: varient.clone(),
-            }));
+            .map(|v| v.name())
+            .cloned()
+            .collect();
 
-        changes.extend(removed_fields);
-
-        let new_doc_comments = new_version.comments.get_doc_comments();
-        if &new_doc_comments != &self.comments.get_doc_comments() {
-            changes.push(SingleChange::EditedType(EditedType { 
-                comments: new_doc_comments, 
-                attributes: Attributes::default(),
-                type_type: SchemaStmType::Enum, 
-                type_name: self.name.clone() 
+        let mut edited_varient_order = Vec::new();
+        if old_varient_order != new_varient_order {
+            edited_varient_order.push(SingleChange::EditedVariantsOrder(EditedVariantsOrder { 
+                type_name: self.name.clone(), 
+                old_order: old_varient_order, 
+                new_order: new_varient_order
             }));
         }
+
+        // Check if the generic has changed
+        let mut edited_type = Vec::new();
+        if self.generics != new_version.generics {
+            edited_type.push(SingleChange::EditedGenerics(EditedGenerics {
+                type_name: self.name.clone(),
+                old_generics: self.generics.clone(),
+                new_generics: new_version.generics.clone()
+            }));
+        }
+
+        // Check if anything in the type itself has changed
+        /*
+        if self.comments != new_version.comments {
+            edited_type.push(SingleChange::EditedType(EditedType {
+                type_name: self.name.clone(),
+                type_type: SchemaStmType::Enum,
+                comments: new_version.comments.clone(),
+                attributes: Default::default()
+            }))
+        }
+         */
+
+        for varient in &self.varients {
+            if let Some(new_varient) = new_version.get_varient(varient.name()) {
+                if varient.comments() != new_varient.comments() {
+                    edited_type.push(SingleChange::EditedVariant(EditedVariant {
+                        type_name: self.name.clone(),
+                        varient_name: varient.name().clone(),
+                        comments: new_varient.comments().get_doc_comments()
+                    }));
+                }
+            }
+        }
+
+        // Store the changes in a sorted order
+        // this prevents a case where we edit a varient that does not exist
+        // or try to sort a varient before it is created
+        let mut changes: Vec<_> = Vec::new();
+        changes.extend(added_varients);
+        changes.extend(edited_varients);
+        changes.extend(edited_varient_order);
+        changes.extend(removed_varients);
+        changes.extend(edited_type);
+        
 
         Ok(ChangeSet {
             new_hash: Default::default(),
@@ -68,7 +234,7 @@ where
             handler: None,
             new_version: Default::default(),
             old_version: Default::default(),
-            changes
+            changes,
         })
     }
 }

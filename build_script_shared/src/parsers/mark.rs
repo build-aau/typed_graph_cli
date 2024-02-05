@@ -1,20 +1,20 @@
-use std::cmp::Ordering;
-use std::hash::{Hasher, Hash};
-use std::ops::Deref;
-use fake::*;
 use super::Marked;
+use fake::*;
+use serde::{Deserialize, Serialize};
+use std::cmp::Ordering;
+use std::fmt::Debug;
+use std::hash::{Hash, Hasher};
+use std::ops::Deref;
 
 /// Stores the position of an item in the given input data
-#[derive(Debug, Clone, Copy, Default, Dummy)]
+#[derive(Clone, Copy, Default, Dummy)]
 pub struct Mark<I> {
-    marker: I
+    marker: I,
 }
 
 impl<I> Mark<I> {
     pub fn new(s: I) -> Mark<I> {
-        Mark { 
-            marker: s 
-        }
+        Mark { marker: s }
     }
 
     /// Move from one input type to another
@@ -23,7 +23,7 @@ impl<I> Mark<I> {
         F: FnMut(I) -> O,
     {
         Mark {
-            marker: f(self.marker)
+            marker: f(self.marker),
         }
     }
 }
@@ -31,8 +31,8 @@ impl<I> Mark<I> {
 impl<I: Default> Mark<I> {
     /// Create an empty marker indicating the origin is unknown
     pub fn null() -> Mark<I> {
-        Mark { 
-            marker: Default::default() 
+        Mark {
+            marker: Default::default(),
         }
     }
 }
@@ -56,7 +56,15 @@ impl<I> Marked<I> for &Mark<I> {
     }
 }
 
-/// The marker is not included in the hash since multiple equal items 
+// Since the mark sometimes include the entire source file we leave it out of the debug.  
+// That way debug info becomes less cluttered
+impl<I> Debug for Mark<I> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Mark {{ /* Mark Reference */}} ")
+    }
+}
+
+/// The marker is not included in the hash since multiple equal items
 /// can originate from different places in the input file
 impl<I> Hash for Mark<I> {
     fn hash<H: Hasher>(&self, _state: &mut H) {}

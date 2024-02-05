@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::collections::HashSet;
 
 use super::*;
@@ -11,21 +12,18 @@ use nom::character::complete::*;
 use nom::combinator::*;
 use nom::error::context;
 use nom::sequence::*;
+use serde::Deserialize;
+use serde::Serialize;
 
-#[derive(PartialEq, Eq, Debug, Hash, Clone, PartialOrd, Ord, Dummy)]
+#[derive(PartialEq, Eq, Debug, Hash, Clone, PartialOrd, Ord, Dummy, Serialize, Deserialize)]
+#[serde(bound = "I: Default + Clone")]
+#[serde(tag = "type")]
 pub enum SchemaStm<I> {
     Node(NodeExp<I>),
     Edge(EdgeExp<I>),
     Enum(EnumExp<I>),
     Struct(StructExp<I>),
-    Import(ImportExp<I>)
-}
-
-pub struct SchemaStmOfType<I> {
-    pub name: Ident<I>, 
-    pub ty: SchemaStmType, 
-    pub node_types: HashSet<String>, 
-    pub ref_types: HashSet<String>
+    Import(ImportExp<I>),
 }
 
 impl<I> SchemaStm<I> {
@@ -90,7 +88,7 @@ impl<I> SchemaStm<I> {
     }
 
     /// Move from one input type to another
-    pub fn map<O, F>(self, f: F) -> SchemaStm<O> 
+    pub fn map<O, F>(self, f: F) -> SchemaStm<O>
     where
         F: FnMut(I) -> O + Copy,
     {
@@ -102,11 +100,21 @@ impl<I> SchemaStm<I> {
             SchemaStm::Import(n) => SchemaStm::Import(n.map(f)),
         }
     }
+
+    pub fn strip_comments(&mut self) {
+        match self {
+            SchemaStm::Node(n) => n.strip_comments(),
+            SchemaStm::Edge(n) => n.strip_comments(),
+            SchemaStm::Enum(n) => n.strip_comments(),
+            SchemaStm::Struct(n) => n.strip_comments(),
+            SchemaStm::Import(n) => n.strip_comments(),
+        }
+    }
 }
 
 impl<I: InputType> ParserDeserialize<I> for SchemaStm<I> {
     fn parse(s: I) -> ParserResult<I, Self> {
-        let (s, schema) = context(
+        context(
             "Parsing Schema Statement",
             terminated(
                 alt((
@@ -115,24 +123,22 @@ impl<I: InputType> ParserDeserialize<I> for SchemaStm<I> {
                     map(EnumExp::parse, SchemaStm::Enum),
                     map(StructExp::parse, SchemaStm::Struct),
                     map(ImportExp::parse, SchemaStm::Import),
-                    fail
+                    fail,
                 )),
-                cut(char(';'))
+                cut(char(';')),
             )
-        )(s)?;
-
-        Ok((s, schema))
+        )(s)
     }
 }
 
 impl<I> ParserSerialize for SchemaStm<I> {
-    fn compose<W: std::fmt::Write>(&self, f: &mut W) -> ComposerResult<()> {
+    fn compose<W: std::fmt::Write>(&self, f: &mut W, ctx: ComposeContext) -> ComposerResult<()> {
         match self {
-            SchemaStm::Node(n) => n.compose(f),
-            SchemaStm::Edge(n) => n.compose(f),
-            SchemaStm::Enum(n) => n.compose(f),
-            SchemaStm::Struct(n) => n.compose(f),
-            SchemaStm::Import(n) => n.compose(f),
+            SchemaStm::Node(n) => n.compose(f, ctx),
+            SchemaStm::Edge(n) => n.compose(f, ctx),
+            SchemaStm::Enum(n) => n.compose(f, ctx),
+            SchemaStm::Struct(n) => n.compose(f, ctx),
+            SchemaStm::Import(n) => n.compose(f, ctx),
         }?;
         write!(f, ";")?;
         Ok(())
@@ -151,31 +157,60 @@ impl<I> Marked<I> for SchemaStm<I> {
     }
 }
 
+pub struct SchemaStmOfType<I> {
+    pub name: Ident<I>,
+    pub ty: SchemaStmType,
+    pub generic_count: usize,
+    pub node_types: HashSet<String>,
+    pub ref_types: TypeReferenceMap,
+}
+
 impl<I: Dummy<Faker> + Clone> Dummy<SchemaStmOfType<I>> for SchemaStm<I> {
-    fn dummy_with_rng<R: rand::prelude::Rng + ?Sized>(config: &SchemaStmOfType<I>, rng: &mut R) -> Self {
+    fn dummy_with_rng<R: rand::prelude::Rng + ?Sized>(
+        config: &SchemaStmOfType<I>,
+        rng: &mut R,
+    ) -> Self {
         match &config.ty {
-            SchemaStmType::Node => SchemaStm::Node(NodeExp::dummy_with_rng(&NodeExpOfType {
-                name: config.name.clone(),
-                ref_types: config.ref_types.clone(),
-                node_types: config.node_types.clone()
-            }, rng)),
-            SchemaStmType::Edge => SchemaStm::Edge(EdgeExp::dummy_with_rng(&EdgeExpOfType {
-                name: config.name.clone(),
-                node_types: config.node_types.clone(),
-                ref_types: config.ref_types.clone()
-            }, rng)),
-            SchemaStmType::Struct => SchemaStm::Struct(StructExp::dummy_with_rng(&StructExpOfType {
-                name: config.name.clone(),
-                ref_types: config.ref_types.clone()
-            }, rng)),
-            SchemaStmType::Enum => SchemaStm::Enum(EnumExp::dummy_with_rng(&EnumExpOfType {
-                name: config.name.clone()
-            }, rng)),
-            SchemaStmType::Import => SchemaStm::Import(ImportExp::dummy_with_rng(&ImportExpOfType {
-                name: config.name.clone()
-            }, rng))
+            SchemaStmType::Node => SchemaStm::Node(NodeExp::dummy_with_rng(
+                &NodeExpOfType {
+                    name: config.name.clone(),
+                    ref_types: config.ref_types.clone(),
+                    node_types: config.node_types.clone(),
+                },
+                rng,
+            )),
+            SchemaStmType::Edge => SchemaStm::Edge(EdgeExp::dummy_with_rng(
+                &EdgeExpOfType {
+                    name: config.name.clone(),
+                    node_types: config.node_types.clone(),
+                    ref_types: config.ref_types.clone(),
+                },
+                rng,
+            )),
+            SchemaStmType::Struct => SchemaStm::Struct(StructExp::dummy_with_rng(
+                &StructExpOfType {
+                    name: config.name.clone(),
+                    generic_count: config.generic_count,
+                    ref_types: config.ref_types.clone(),
+                },
+                rng,
+            )),
+            SchemaStmType::Enum => SchemaStm::Enum(EnumExp::dummy_with_rng(
+                &EnumExpOfType {
+                    name: config.name.clone(),
+                    generic_count: config.generic_count,
+                    ref_types: config.ref_types.clone(),
+                },
+                rng,
+            )),
+            SchemaStmType::Import => SchemaStm::Import(ImportExp::dummy_with_rng(
+                &ImportExpOfType {
+                    name: config.name.clone(),
+                },
+                rng,
+            )),
         }
     }
 }
 
-compose_test!{schema_stm_compose, SchemaStm<I>}
+compose_test! {schema_stm_compose, SchemaStm<I>}

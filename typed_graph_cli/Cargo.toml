@@ -1,0 +1,22 @@
+[package]
+name = "typed_graph_cli"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+build_script_shared = { path = "../build_script_shared" }
+build_script_lang = { path = "../build_script_lang" }
+build_changeset_lang = { path = "../build_changeset_lang"}
+clap = { version = "4.4.18", features = ["derive"] }
+serde = { version="1.0", features = ["serde_derive", "rc"] }
+serde_json = "1.0.111"
+thiserror = "1.0.49"
+
+[features]
+diff = []
+
+[[bin]]
+name = "typed_graph"
+path = "src/bin/main.rs"

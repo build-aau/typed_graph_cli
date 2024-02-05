@@ -1,6 +1,7 @@
 use build_script_lang::schema::Schema;
-use build_script_shared::InputType;
 use build_script_shared::compose_test;
+use build_script_shared::error::ParserSlimResult;
+use build_script_shared::InputType;
 use fake::Dummy;
 use nom::sequence::terminated;
 use std::fmt::Display;
@@ -8,17 +9,17 @@ use std::fmt::Display;
 use build_script_shared::error::ParserResult;
 use build_script_shared::parsers::*;
 
-use nom::error::context;
 use nom::branch::*;
-use nom::combinator::*;
 use nom::character::complete::char;
+use nom::combinator::*;
+use nom::error::context;
 
 use crate::*;
 
 /// Represent a single change in the schema
-/// 
+///
 /// Changes are seperated into add, edit and remove events
-/// 
+///
 /// This makes it easier to see what actually changed
 #[derive(PartialEq, Eq, Debug, Clone, Hash, Dummy)]
 pub enum SingleChange<I> {
@@ -32,15 +33,17 @@ pub enum SingleChange<I> {
     RemovedField(RemovedField<I>),
     EditedFieldType(EditedField<I>),
     EditedType(EditedType<I>),
+    EditedVariantsOrder(EditedVariantsOrder<I>),
     EditedEndpoint(EditedEndpoint<I>),
-    
+    EditedVariant(EditedVariant<I>),
+    EditedGenerics(EditedGenerics<I>)
 }
 
 impl<I> SingleChange<I> {
     /// Move from one input type to another
-    pub fn map<O, F>(self, f: F) -> SingleChange<O> 
+    pub fn map<O, F>(self, f: F) -> SingleChange<O>
     where
-        F: Fn(I) -> O + Copy
+        F: Fn(I) -> O + Copy,
     {
         match self {
             SingleChange::AddedType(s) => SingleChange::AddedType(s.map(f)),
@@ -53,14 +56,17 @@ impl<I> SingleChange<I> {
             SingleChange::RemovedEndpoint(s) => SingleChange::RemovedEndpoint(s.map(f)),
             SingleChange::EditedFieldType(s) => SingleChange::EditedFieldType(s.map(f)),
             SingleChange::EditedType(s) => SingleChange::EditedType(s.map(f)),
+            SingleChange::EditedVariantsOrder(s) => SingleChange::EditedVariantsOrder(s.map(f)),
             SingleChange::EditedEndpoint(s) => SingleChange::EditedEndpoint(s.map(f)),
+            SingleChange::EditedGenerics(s) => SingleChange::EditedGenerics(s.map(f)),
+            SingleChange::EditedVariant(s) => SingleChange::EditedVariant(s.map(f)),
         }
     }
 
     /// Apply the change to a schema
-    pub fn apply(&self, schema: &mut Schema<I>) -> ChangeSetResult<()> 
+    pub fn apply(&self, schema: &mut Schema<I>) -> ChangeSetResult<()>
     where
-        I: Default + Clone + PartialEq
+        I: Default + Clone + PartialEq,
     {
         match self {
             SingleChange::AddedType(s) => s.apply(schema),
@@ -73,49 +79,83 @@ impl<I> SingleChange<I> {
             SingleChange::RemovedEndpoint(s) => s.apply(schema),
             SingleChange::EditedFieldType(s) => s.apply(schema),
             SingleChange::EditedType(s) => s.apply(schema),
+            SingleChange::EditedVariantsOrder(s) => s.apply(schema),
             SingleChange::EditedEndpoint(s) => s.apply(schema),
+            SingleChange::EditedGenerics(s) => s.apply(schema),
+            SingleChange::EditedVariant(s) => s.apply(schema),
+        }
+    }
 
+    pub fn check_convertions(&self) -> ParserSlimResult<I, ()> 
+    where
+        I: Clone
+    {
+        match self {
+            SingleChange::EditedFieldType(t) => t.check_convertions(),
+            _ => Ok(())
         }
     }
 }
 
 impl<I: InputType> ParserDeserialize<I> for SingleChange<I> {
     fn parse(s: I) -> ParserResult<I, Self> {
-        let res = context("Parsing SingleChange", alt((
-            terminated(map(AddedType::parse, SingleChange::AddedType), ws(char(';'))),
-            terminated(map(AddedVarient::parse, SingleChange::AddedVarient), ws(char(';'))),
-            terminated(map(AddedField::parse, SingleChange::AddedField), ws(char(';'))),
-            terminated(map(AddedEndpoint::parse, SingleChange::AddedEndpoint), ws(char(';'))),
-            terminated(map(RemovedType::parse, SingleChange::RemovedType), ws(char(';'))),
-            terminated(map(RemovedField::parse, SingleChange::RemovedField), ws(char(';'))),
-            terminated(map(RemovedVarient::parse, SingleChange::RemovedVarient), ws(char(';'))),
-            terminated(map(RemovedEndpoint::parse, SingleChange::RemovedEndpoint), ws(char(';'))),
-            terminated(map(EditedField::parse, SingleChange::EditedFieldType), ws(char(';'))),
-            terminated(map(EditedType::parse, SingleChange::EditedType), ws(char(';'))),
-            terminated(map(EditedEndpoint::parse, SingleChange::EditedEndpoint), ws(char(';'))),
-            fail
-        )))(s)?;
+        let (s, change) = context(
+                "Parsing SingleChange",
+                alt((
+                    // Since most of them are very similar the order is super important
+                    map(AddedVarient::parse, SingleChange::AddedVarient),
+                    map(AddedField::parse, SingleChange::AddedField),
+                    map(AddedType::parse, SingleChange::AddedType),
+                    map(AddedEndpoint::parse, SingleChange::AddedEndpoint),
+                    
+                    map(RemovedField::parse, SingleChange::RemovedField),
+                    map(RemovedVarient::parse, SingleChange::RemovedVarient),
+                    map(RemovedEndpoint::parse, SingleChange::RemovedEndpoint),
+                    map(RemovedType::parse, SingleChange::RemovedType),
+                    
+                    map(EditedField::parse, SingleChange::EditedFieldType),
+                    map(EditedVariantsOrder::parse, SingleChange::EditedVariantsOrder),
+                    map(EditedGenerics::parse, SingleChange::EditedGenerics),
+                    map(EditedVariant::parse, SingleChange::EditedVariant),
+                    map(EditedEndpoint::parse, SingleChange::EditedEndpoint),
+                    map(EditedType::parse, SingleChange::EditedType),
+                )),
+            )(s)?;
+            
+        let (s, _) = context(
+                "Parsing SingleChange",
+                cut(char(';'))
+            )(s)?;
+        
+        change.check_convertions()?;
 
-        Ok(res)
+        Ok((s, change))
     }
 }
 
 impl<I> ParserSerialize for SingleChange<I> {
-    fn compose<W: std::fmt::Write>(&self, f: &mut W) -> build_script_shared::error::ComposerResult<()> {
+    fn compose<W: std::fmt::Write>(
+        &self,
+        f: &mut W,
+        ctx: ComposeContext
+    ) -> build_script_shared::error::ComposerResult<()> {
         match self {
-            SingleChange::AddedType(s) => s.compose(f),
-            SingleChange::AddedVarient(s) => s.compose(f),
-            SingleChange::AddedField(s) => s.compose(f),
-            SingleChange::AddedEndpoint(s) => s.compose(f),
-            SingleChange::RemovedType(s) => s.compose(f),
-            SingleChange::RemovedVarient(s) => s.compose(f),
-            SingleChange::RemovedField(s) => s.compose(f),
-            SingleChange::RemovedEndpoint(s) => s.compose(f),
-            SingleChange::EditedFieldType(s) => s.compose(f),
-            SingleChange::EditedType(s) => s.compose(f),
-            SingleChange::EditedEndpoint(s) => s.compose(f),
+            SingleChange::AddedVarient(s) => s.compose(f, ctx),
+            SingleChange::AddedEndpoint(s) => s.compose(f, ctx),
+            SingleChange::AddedField(s) => s.compose(f, ctx),
+            SingleChange::AddedType(s) => s.compose(f, ctx),
+            SingleChange::RemovedEndpoint(s) => s.compose(f, ctx),
+            SingleChange::RemovedVarient(s) => s.compose(f, ctx),
+            SingleChange::RemovedField(s) => s.compose(f, ctx),
+            SingleChange::RemovedType(s) => s.compose(f, ctx),
+            SingleChange::EditedFieldType(s) => s.compose(f, ctx),
+            SingleChange::EditedVariantsOrder(s) => s.compose(f, ctx),
+            SingleChange::EditedGenerics(s) => s.compose(f, ctx),
+            SingleChange::EditedVariant(s) => s.compose(f, ctx),
+            SingleChange::EditedEndpoint(s) => s.compose(f, ctx),
+            SingleChange::EditedType(s) => s.compose(f, ctx),
         }?;
-        writeln!(f, ";")?;
+        write!(f, ";")?;
 
         Ok(())
     }
@@ -133,10 +173,13 @@ impl<I> Display for SingleChange<I> {
             SingleChange::RemovedField(s) => write!(f, "{}", s),
             SingleChange::RemovedEndpoint(s) => write!(f, "{}", s),
             SingleChange::EditedType(s) => write!(f, "{}", s),
+            SingleChange::EditedVariantsOrder(s) => write!(f, "{}", s),
             SingleChange::EditedFieldType(s) => write!(f, "{}", s),
             SingleChange::EditedEndpoint(s) => write!(f, "{}", s),
+            SingleChange::EditedGenerics(s) => write!(f, "{}", s),
+            SingleChange::EditedVariant(s) => write!(f, "{}", s),
         }
     }
 }
 
-compose_test!{single_change_compose, SingleChange<I>}
+compose_test! {single_change_compose, SingleChange<I>}

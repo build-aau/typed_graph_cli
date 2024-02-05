@@ -4,14 +4,14 @@ use build_script_lang::schema::SchemaStmType;
 use build_script_lang::schema::StructExp;
 use build_script_shared::parsers::Attributes;
 
-use crate::ChangeSetError;
-use crate::ChangeSetResult;
 use crate::schema::*;
 use crate::traits::ChangeSetBuilder;
+use crate::ChangeSetError;
+use crate::ChangeSetResult;
 
 impl<I> ChangeSetBuilder<I> for StructExp<I>
 where
-    I: Clone + Default + PartialEq + Debug
+    I: Clone + Default + PartialEq + Debug,
 {
     fn build_changeset_with_path(
         &self,
@@ -35,16 +35,26 @@ where
         let mut changes = ChangeSet::new();
 
         let new_path = Some(FieldPath::new(self.name.clone()));
-        let field_changes = self.fields.build_changeset_with_path(&new_version.fields, new_path)?;
+        let field_changes = self
+            .fields
+            .build_changeset_with_path(&new_version.fields, new_path)?;
         changes.extend(field_changes);
 
         let new_doc_comments = new_version.comments.get_doc_comments();
         if &new_doc_comments != &self.comments.get_doc_comments() {
-            changes.push(SingleChange::EditedType(EditedType { 
-                comments: new_doc_comments, 
+            changes.push(SingleChange::EditedType(EditedType {
+                comments: new_doc_comments,
                 attributes: Attributes::default(),
-                type_type: SchemaStmType::Struct, 
-                type_name: self.name.clone() 
+                type_type: SchemaStmType::Struct,
+                type_name: self.name.clone(),
+            }));
+        }
+
+        if &new_version.generics != &self.generics {
+            changes.push(SingleChange::EditedGenerics(EditedGenerics {
+                type_name: self.name.clone(),
+                old_generics: self.generics.clone(),
+                new_generics: new_version.generics.clone()
             }));
         }
 

@@ -1,28 +1,31 @@
+use crate::compose_test;
+use crate::error::ParserResult;
+use crate::input_marker::InputType;
+use crate::parsers::*;
+use fake::*;
+use nom::error::context;
+use nom::sequence::*;
+use rand::seq::SliceRandom;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::hash::Hash;
-use crate::compose_test;
-use crate::input_marker::InputType;
-use crate::error::ParserResult;
-use crate::parsers::*;
-use nom::sequence::*;
-use nom::error::context;
-use fake::*;
-use rand::seq::SliceRandom;
 
-#[derive(Debug, Clone, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialOrd, Ord, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(bound = "I: Default + Clone")]
 pub struct AttributeFunction<I> {
     pub key: Ident<I>,
-    pub values: BTreeMap<usize, Ident<I>>,
-    mark: Mark<I>
+    pub values: Vec<Ident<I>>,
+    #[serde(skip)]
+    mark: Mark<I>,
 }
 
 impl<I> AttributeFunction<I> {
-    pub fn new(key: Ident<I>, values: BTreeMap<usize, Ident<I>>, mark: Mark<I>) -> AttributeFunction<I> {
-        AttributeFunction {
-            key,
-            values,
-            mark
-        }
+    pub fn new(
+        key: Ident<I>,
+        values: Vec<Ident<I>>,
+        mark: Mark<I>,
+    ) -> AttributeFunction<I> {
+        AttributeFunction { key, values, mark }
     }
 
     /// Move from one input type to another
@@ -32,70 +35,52 @@ impl<I> AttributeFunction<I> {
     {
         AttributeFunction {
             key: self.key.map(f),
-            values: self.values.into_iter().map(|(i, attr)| (i, attr.map(f))).collect(),
-            mark: self.mark.map(f)
+            values: self.values
+                .into_iter()
+                .map(|a| a.map(f))
+                .collect(),
+            mark: self.mark.map(f),
         }
     }
 }
 
-impl<I: InputType> ParserDeserialize<I>  for AttributeFunction<I> {
+impl<I: InputType> ParserDeserialize<I> for AttributeFunction<I> {
     fn parse(s: I) -> ParserResult<I, Self> {
         let (s, ((key, values), mark)) = context(
             "Parsing AttributeFunction",
-            marked(
-                pair(
-                    Ident::ident, 
-                    surrounded(
-                        '(', 
-                        punctuated(Ident::ident, ','), 
-                        ')'
-                    )
-                )
-            )
+            marked(pair(
+                Ident::ident,
+                surrounded('(', punctuated(Ident::ident, ','), ')'),
+            )),
         )(s)?;
 
         Ok((
             s,
-            AttributeFunction { 
+            AttributeFunction {
                 key,
-                values: values.into_iter().enumerate().collect(),
-                mark
-            }
+                values,
+                mark,
+            },
         ))
     }
 }
 
 impl<I> ParserSerialize for AttributeFunction<I> {
-    fn compose<W: std::fmt::Write>(&self, f: &mut W) -> crate::error::ComposerResult<()> {
+    fn compose<W: std::fmt::Write>(&self, f: &mut W, ctx: ComposeContext) -> crate::error::ComposerResult<()> {
         write!(f, "{}(", self.key)?;
         let mut first = true;
-        for value in self.values.values() {
+        for value in &self.values {
             if !first {
                 write!(f, ", ")?;
             } else {
                 first = false;
             }
-            value.compose(f)?;
+            value.compose(f, ctx)?;
         }
         write!(f, ")")?;
         Ok(())
     }
 }
-
-impl<I> Hash for AttributeFunction<I> {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.key.hash(state);
-        self.values.hash(state);
-    }
-}
-
-impl<I> PartialEq for AttributeFunction<I> {
-    fn eq(&self, other: &Self) -> bool {
-        self.key == other.key && self.values == other.values
-    }
-}
-
-impl<I> Eq for AttributeFunction<I> {}
 
 impl<I> Marked<I> for AttributeFunction<I> {
     fn marker(&self) -> &Mark<I> {
@@ -108,8 +93,10 @@ impl<I: Dummy<Faker>> Dummy<Faker> for AttributeFunction<I> {
         let len = rng.gen_range(0..10);
         AttributeFunction {
             key: SimpleIdentDummy.fake_with_rng(rng),
-            values: (0..len).map(|i| (i, SimpleIdentDummy.fake_with_rng(rng))).collect(),
-            mark: Faker.fake_with_rng(rng)
+            values: (0..len)
+                .map(|_| SimpleIdentDummy.fake_with_rng(rng))
+                .collect(),
+            mark: Faker.fake_with_rng(rng),
         }
     }
 }
@@ -120,10 +107,12 @@ impl<I: Dummy<Faker>> Dummy<AllowedFunctionAttribute> for AttributeFunction<I> {
         let (key, len) = config.0.choose(rng).unwrap();
         AttributeFunction {
             key: Ident::new(key.to_string(), Faker.fake_with_rng(rng)),
-            values: (0..*len).map(|i| (i, SimpleIdentDummy.fake_with_rng(rng))).collect(),
-            mark: Faker.fake_with_rng(rng)
+            values: (0..*len)
+                .map(|_| SimpleIdentDummy.fake_with_rng(rng))
+                .collect(),
+            mark: Faker.fake_with_rng(rng),
         }
     }
 }
 
-compose_test!{attribute_function_compose_test, AttributeFunction<I>}
+compose_test! {attribute_function_compose_test, AttributeFunction<I>}

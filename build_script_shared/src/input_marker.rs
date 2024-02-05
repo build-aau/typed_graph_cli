@@ -1,7 +1,7 @@
 use nom::*;
-use std::fmt::{Display, Debug};
-use std::ops::{RangeFrom, RangeTo, Range};
+use std::fmt::{Debug, Display};
 use std::hash::Hash;
+use std::ops::{Range, RangeFrom, RangeTo};
 
 use crate::code_preview::CodePreview;
 
@@ -9,8 +9,8 @@ pub trait InputType:
     Slice<RangeFrom<usize>>
     + Slice<RangeTo<usize>>
     + Slice<Range<usize>>
-    + InputIter<Item=char>
-    + InputTakeAtPosition<Item=char>
+    + InputIter<Item = char>
+    + InputTakeAtPosition<Item = char>
     + Clone
     + for<'a> FindSubstring<&'a str>
     + InputTake
@@ -31,10 +31,10 @@ impl<'a> InputType for &'a str {
     type Item = char;
 }
 
-pub type InputMarkerRef<'a> = InputMarker<&'a  str>;
+pub type InputMarkerRef<'a> = InputMarker<&'a str>;
 pub type OwnedMarker = InputMarker<String>;
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Default)]
+#[derive(Clone, PartialEq, Eq, Hash, Default)]
 pub struct InputMarker<I> {
     data: I,
     pub(crate) source_file: String,
@@ -43,9 +43,9 @@ pub struct InputMarker<I> {
 }
 
 impl<I> InputMarker<I> {
-    pub fn new(s: I) -> InputMarker<I> 
+    pub fn new(s: I) -> InputMarker<I>
     where
-        I: AsRef<str>
+        I: AsRef<str>,
     {
         let end = s.as_ref().len();
 
@@ -53,13 +53,13 @@ impl<I> InputMarker<I> {
             data: s,
             source_file: "".to_string(),
             start: 0,
-            end
+            end,
         }
     }
 
-    pub fn new_from_file(s: I, source_file: String) -> InputMarker<I> 
+    pub fn new_from_file(s: I, source_file: String) -> InputMarker<I>
     where
-        I: AsRef<str>
+        I: AsRef<str>,
     {
         let end = s.as_ref().len();
 
@@ -67,7 +67,7 @@ impl<I> InputMarker<I> {
             data: s,
             source_file: source_file,
             start: 0,
-            end
+            end,
         }
     }
 
@@ -83,9 +83,21 @@ impl<I> InputMarker<I> {
         &self.data
     }
 
-    pub fn get_preview(&self, lines_above: usize, lines_below: usize) -> CodePreview 
+    pub fn get_end(&self) -> Self 
     where
-        I: AsRef<str>
+        I: Clone
+    {
+        InputMarker {
+            data: self.data.clone(),
+            source_file: self.source_file.clone(),
+            start: self.end,
+            end: self.end
+        }
+    }
+
+    pub fn get_preview(&self, lines_above: usize, lines_below: usize) -> CodePreview
+    where
+        I: AsRef<str>,
     {
         CodePreview::new(
             self.data.as_ref(),
@@ -95,29 +107,51 @@ impl<I> InputMarker<I> {
             lines_below,
         )
     }
+
+    pub fn map<O, F>(self, f: F) -> InputMarker<O> 
+    where
+        F: Fn(I) -> O
+    {
+        InputMarker {
+            data: f(self.data),
+            source_file: self.source_file.clone(),
+            start: self.start,
+            end: self.end
+        }
+    }
 }
 
-impl<I> InputType for InputMarker<I> 
+impl<I> Debug for InputMarker<I> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.source_file.is_empty() {
+            write!(f, "InputMarker {{ /* InputMarker {} to {} */}} ", self.start, self.end)
+        } else {
+            write!(f, "InputMarker {{ /* InputMarker {} to {} from {} */}} ", self.start, self.end, self.source_file)
+        }
+    }
+}
+
+impl<I> InputType for InputMarker<I>
 where
     I: InputType,
     for<'b> InputMarker<I>: Compare<&'b str>,
-    for<'b> InputMarker<I>: FindSubstring<&'b str>
+    for<'b> InputMarker<I>: FindSubstring<&'b str>,
 {
     type Item = <I as InputType>::Item;
 }
 
-impl<I> AsRef<str> for InputMarker<I> 
+impl<I> AsRef<str> for InputMarker<I>
 where
-    I: AsRef<str>
+    I: AsRef<str>,
 {
     fn as_ref(&self) -> &str {
         self.data.as_ref()[self.start..self.end].as_ref()
     }
 }
 
-impl<I> Compare<&str> for InputMarker<I> 
+impl<I> Compare<&str> for InputMarker<I>
 where
-    I: AsRef<str>
+    I: AsRef<str>,
 {
     fn compare(&self, t: &str) -> CompareResult {
         self.as_ref().compare(t)
@@ -128,9 +162,9 @@ where
     }
 }
 
-impl<I> Slice<RangeFrom<usize>> for InputMarker<I> 
+impl<I> Slice<RangeFrom<usize>> for InputMarker<I>
 where
-    I: Clone
+    I: Clone,
 {
     fn slice(&self, range: RangeFrom<usize>) -> Self {
         InputMarker {
@@ -142,23 +176,23 @@ where
     }
 }
 
-impl<I> Slice<RangeTo<usize>> for InputMarker<I> 
+impl<I> Slice<RangeTo<usize>> for InputMarker<I>
 where
-    I: Clone
+    I: Clone,
 {
     fn slice(&self, range: RangeTo<usize>) -> Self {
         InputMarker {
             end: self.start.max(self.start + range.end).min(self.end),
             source_file: self.source_file.clone(),
             start: self.start,
-            data: self.data.clone()
+            data: self.data.clone(),
         }
     }
 }
 
-impl<I> Slice<Range<usize>> for InputMarker<I> 
+impl<I> Slice<Range<usize>> for InputMarker<I>
 where
-    I: Clone
+    I: Clone,
 {
     fn slice(&self, range: Range<usize>) -> Self {
         InputMarker {
@@ -188,9 +222,9 @@ impl<I> InputLength for InputMarker<I> {
     }
 }
 
-impl<I> InputIter for InputMarker<I> 
+impl<I> InputIter for InputMarker<I>
 where
-    I: InputIter<Item = char> + Slice<Range<usize>>
+    I: InputIter<Item = char> + Slice<Range<usize>>,
 {
     type Item = char;
     type Iter = I::Iter;
@@ -215,18 +249,18 @@ where
 
 impl<I> UnspecializedInput for InputMarker<I> {}
 
-impl<'a, I> FindSubstring<&'a str> for InputMarker<I> 
+impl<'a, I> FindSubstring<&'a str> for InputMarker<I>
 where
-    I: Slice<Range<usize>> + FindSubstring<&'a str>
+    I: Slice<Range<usize>> + FindSubstring<&'a str>,
 {
     fn find_substring(&self, substr: &'a str) -> Option<usize> {
         (&self.data.slice(self.start..self.end)).find_substring(substr)
     }
 }
 
-impl<I> InputTake for InputMarker<I> 
+impl<I> InputTake for InputMarker<I>
 where
-    I: Clone
+    I: Clone,
 {
     fn take(&self, count: usize) -> Self {
         self.slice(..count)
@@ -243,15 +277,14 @@ impl<I> Offset for InputMarker<I> {
     }
 }
 
-impl<I> Display for InputMarker<I> 
+impl<I> Display for InputMarker<I>
 where
-    I: AsRef<str>
+    I: AsRef<str>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.as_ref().to_string())
     }
 }
-
 
 impl<'a> From<InputMarker<&'a String>> for InputMarker<&'a str> {
     fn from(value: InputMarker<&'a String>) -> Self {
@@ -259,7 +292,7 @@ impl<'a> From<InputMarker<&'a String>> for InputMarker<&'a str> {
             data: value.data.as_str(),
             source_file: value.source_file,
             start: value.start,
-            end: value.end
+            end: value.end,
         }
     }
 }

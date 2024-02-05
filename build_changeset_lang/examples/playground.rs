@@ -2,14 +2,14 @@ use build_changeset_lang::*;
 use build_script_lang::DefaultSchema;
 use build_script_shared::parsers::ParserDeserialize;
 use build_script_shared::{BUILDScriptError, InputMarker};
-use notify::{RecursiveMode, Watcher, Event, EventKind};
-use thiserror::Error;
+use notify::{Event, EventKind, RecursiveMode, Watcher};
 use std::env;
 use std::fs::{create_dir, read_to_string};
 use std::path::Path;
 use std::sync::{Arc, RwLock};
 use std::thread::sleep;
 use std::time::Duration;
+use thiserror::Error;
 
 fn version_folder_listener() -> impl FnMut(notify::Result<Event>) -> () {
     let skip = Arc::new(RwLock::new(false));
@@ -42,28 +42,28 @@ fn version_folder_listener() -> impl FnMut(notify::Result<Event>) -> () {
 
                     let content = read_to_string(&path).unwrap();
                     let input = InputMarker::new_from_file(
-                        content.as_str(), 
-                        path.to_str().unwrap().to_string()
+                        content.as_str(),
+                        path.to_str().unwrap().to_string(),
                     );
                     let new_version = DefaultSchema::deserialize(input);
                     match new_version {
                         Ok(new_version) => {
                             let root_path_s = env::var("CARGO_MANIFEST_DIR").unwrap();
                             let root_path = Path::new(&root_path_s);
-                            let old_path = root_path.join(format!("examples/versions/{}.bs", filename - 1));
+                            let old_path =
+                                root_path.join(format!("examples/versions/{}.bs", filename - 1));
                             if Path::new(&old_path).exists() {
                                 let content = read_to_string(&old_path).unwrap();
                                 let input = InputMarker::new_from_file(
-                                    content.as_str(), 
-                                    old_path.to_str().unwrap().to_string()
+                                    content.as_str(),
+                                    old_path.to_str().unwrap().to_string(),
                                 );
                                 let old_version = DefaultSchema::deserialize(input);
 
                                 match old_version {
                                     Ok(old_version) => {
-                                        let changes =
-                                            old_version.build_changeset(&new_version);
-        
+                                        let changes = old_version.build_changeset(&new_version);
+
                                         match changes {
                                             Ok(changes) => {
                                                 println!(
@@ -72,13 +72,13 @@ fn version_folder_listener() -> impl FnMut(notify::Result<Event>) -> () {
                                                     filename
                                                 );
                                                 println!("{}", changes)
-                                            },
+                                            }
                                             Err(e) => {
                                                 println!("Making changeset failed with:");
                                                 println!("{}", e);
                                             }
                                         }
-                                    },
+                                    }
                                     Err(e) => {
                                         println!("Parsing old schema failed with:");
                                         println!("{}", e);
@@ -101,7 +101,6 @@ fn version_folder_listener() -> impl FnMut(notify::Result<Event>) -> () {
     }
 }
 
-
 pub type ExampleResult<T> = Result<T, ExampleError>;
 #[derive(Error, Debug)]
 pub enum ExampleError {
@@ -110,11 +109,11 @@ pub enum ExampleError {
     #[error(transparent)]
     NotifyError(#[from] notify::Error),
     #[error(transparent)]
-    IOError(#[from] std::io::Error)
+    IOError(#[from] std::io::Error),
 }
 
 /// Continously parse all schemas in the versions folder
-/// 
+///
 /// Whenever there exist two schemas with consequtive numbers. i.e 1.bs and 2.bs
 /// A Changeset is made between them
 fn main() -> ExampleResult<()> {
@@ -125,7 +124,10 @@ fn main() -> ExampleResult<()> {
         create_dir(&test_dir)?;
     }
 
-    println!("Listening for changes to files in {}", test_dir.to_str().unwrap());
+    println!(
+        "Listening for changes to files in {}",
+        test_dir.to_str().unwrap()
+    );
     // Automatically select the best implementation for your platform.
     let a = version_folder_listener();
     let mut watcher = notify::recommended_watcher(a)?;

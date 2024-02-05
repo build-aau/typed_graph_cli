@@ -83,60 +83,15 @@ impl Display for OwnedParserError {
                 write!(
                     f,
                     "{}({}:{}): ",
-                    source, preview.caret_line_number, preview.caret_offset
+                    source, preview.caret_line_number(), preview.caret_offset()
                 )?;
                 Some(preview)
             };
 
-            match &e.kind {
-                ParserErrorKind::ExpectedChar(c) => {
-                    if let Some(actual) = self.data[e.offset..].chars().next() {
-                        writeln!(f, "Expected '{}', Found {}", c, actual)?;
-                    } else {
-                        writeln!(f, "Expected '{}', Got end of input\n", c)?;
-                    }
-                }
-                ParserErrorKind::FailedToParseInteger => {
-                    writeln!(f, "Expected integer")?;
-                }
-                ParserErrorKind::MissingRequiredField(field_name) => {
-                    writeln!(f, "Missing required field {}", field_name)?;
-                }
-                ParserErrorKind::ChangedProtectedField(field_name) => {
-                    writeln!(f, "Cannot make changes to protected field {}", field_name)?;
-                }
-                ParserErrorKind::CyclicReference => {
-                    writeln!(f, "Detected cyclic reference to type")?;
-                }
-                ParserErrorKind::FirstOccurance => {
-                    writeln!(f, "First occurrence")?;
-                }
-                ParserErrorKind::DuplicateDefinition(name) => {
-                    writeln!(f, "Multiple definitions of {:?}", name)?;
-                }
-                ParserErrorKind::InvalidAttribute(allowed) => {
-                    writeln!(f, "Invalid attribute allowed attributes are {:?}", allowed)?;
-                }
-                ParserErrorKind::ErrorKind(e) => {
-                    writeln!(f, "Encountered error {:?}", e)?;
-                }
-                ParserErrorKind::UnexpectedFieldType(field, ty) => {
-                    writeln!(f, "Unexpected {} type {}", field, ty)?;
-                }
-                ParserErrorKind::Context(ctx) => {
-                    writeln!(f, "{}", ctx)?;
-                }
-                ParserErrorKind::OwnedContext(ctx) => {
-                    writeln!(f, "{}", ctx)?;
-                }
-                ParserErrorKind::UnknownReference(field_type) => {
-                    write!(f, "Unknown reference {}\n", field_type)?
-                }
-                ParserErrorKind::EndOfFile => {}
-            }
+            writeln!(f, "{}", &e.kind)?;
 
             if let Some(preview) = preview {
-                writeln!(f, "{}", preview.preview)?;
+                writeln!(f, "{preview}")?;
             }
         }
 

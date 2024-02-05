@@ -13,29 +13,30 @@ pub enum BUILDScriptError {
     ParserError(#[from] OwnedParserError),
     #[error(transparent)]
     ComposerError(#[from] ComposerError),
-    #[error("{0:?}")]
+    #[error("Parser expected {0:?} more input")]
     NomIncompleteError(Needed),
     #[error(transparent)]
     IOError(#[from] std::io::Error),
 }
 
-impl<I> From<Err<ParserError<I>>> for BUILDScriptError 
+impl<I> From<Err<ParserError<I>>> for BUILDScriptError
 where
     I: ToString,
-    OwnedParserError: From<ParserError<I>>
+    OwnedParserError: From<ParserError<I>>,
 {
     fn from(e: Err<ParserError<I>>) -> Self {
         match e {
-            Err::Error(e) | Err::Failure(e) => e.into(),
+            Err::Error(e) 
+            | Err::Failure(e) => e.into(),
             Err::Incomplete(need) => BUILDScriptError::NomIncompleteError(need),
         }
     }
 }
 
-impl<I> From<ParserError<I>> for BUILDScriptError 
+impl<I> From<ParserError<I>> for BUILDScriptError
 where
     I: ToString,
-    OwnedParserError: From<ParserError<I>>
+    OwnedParserError: From<ParserError<I>>,
 {
     fn from(e: ParserError<I>) -> Self {
         BUILDScriptError::ParserError(e.into())

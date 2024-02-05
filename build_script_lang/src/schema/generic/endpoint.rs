@@ -9,18 +9,24 @@ use nom::character::complete::*;
 use nom::sequence::pair;
 use nom::Err;
 use rand::Rng;
+use serde::Deserialize;
+use serde::Serialize;
 use std::collections::BTreeMap;
 use std::collections::HashSet;
 
 const ALLOWED_ATTRIBUTES: &[&str] = &["rename_inc", "rename_out"];
 
-#[derive(Debug, Hash, PartialEq, Eq, Clone, Dummy, PartialOrd, Ord)]
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Dummy, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(bound = "I: Default + Clone")]
 pub struct EndPoint<I> {
     pub source: Ident<I>,
     pub target: Ident<I>,
+    #[serde(flatten)]
     pub quantity: Quantifier<I>,
     #[dummy(faker = "AllowedKeyValueAttribute(ALLOWED_ATTRIBUTES)")]
+    #[serde(flatten)]
     pub attributes: Attributes<I>,
+    #[serde(skip)]
     marker: Mark<I>,
 }
 
@@ -66,7 +72,6 @@ impl<I> EndPoint<I> {
 
     pub fn check_types(
         &self,
-        _all_reference_types: &HashSet<Ident<I>>,
         node_reference_types: &HashSet<Ident<I>>,
     ) -> ParserSlimResult<I, ()>
     where
@@ -114,13 +119,15 @@ impl<I: InputType> ParserDeserialize<I> for EndPoint<I> {
 }
 
 impl<I> ParserSerialize for EndPoint<I> {
-    fn compose<W: std::fmt::Write>(&self, f: &mut W) -> ComposerResult<()> {
-        self.attributes.compose(f)?;
-        self.source.compose(f)?;
+    fn compose<W: std::fmt::Write>(&self, f: &mut W, ctx: ComposeContext) -> ComposerResult<()> {
+        let endpoint_ctx = ctx.set_indents(0);
+
+        self.attributes.compose(f, ctx)?;
+        self.source.compose(f, ctx)?;
         write!(f, " =>")?;
-        self.quantity.compose(f)?;
+        self.quantity.compose(f, endpoint_ctx)?;
         write!(f, " ")?;
-        self.target.compose(f)?;
+        self.target.compose(f, endpoint_ctx)?;
         Ok(())
     }
 }
@@ -146,16 +153,18 @@ impl<I> Marked<I> for EndPoint<I> {
 pub struct EndpointMap;
 impl<I: Dummy<Faker>> Dummy<EndpointMap> for BTreeMap<(Ident<I>, Ident<I>), EndPoint<I>> {
     fn dummy_with_rng<R: Rng + ?Sized>(_config: &EndpointMap, rng: &mut R) -> Self {
-        let endpoints  = Vec::<EndPoint<I>>::dummy_with_rng(&Faker, rng);
+        let endpoints = Vec::<EndPoint<I>>::dummy_with_rng(&Faker, rng);
         endpoints
             .into_iter()
-            .map(|endpoint| (
+            .map(|endpoint| {
                 (
-                    Ident::new(&endpoint.source, Mark::dummy_with_rng(&Faker, rng)),
-                    Ident::new(&endpoint.target, Mark::dummy_with_rng(&Faker, rng))
-                ),
-                endpoint
-            ))
+                    (
+                        Ident::new(&endpoint.source, Mark::dummy_with_rng(&Faker, rng)),
+                        Ident::new(&endpoint.target, Mark::dummy_with_rng(&Faker, rng)),
+                    ),
+                    endpoint,
+                )
+            })
             .collect()
     }
 }

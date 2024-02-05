@@ -1,42 +1,37 @@
 use std::fmt::Display;
 
+use build_script_shared::error::{ComposerResult, ParserResult};
+use build_script_shared::parsers::{ws, ComposeContext, ParserDeserialize, ParserSerialize};
+use build_script_shared::{compose_test, InputType};
 use fake::Dummy;
 use nom::branch::alt;
 use nom::bytes::complete::tag;
 use nom::character::complete::multispace1;
 use nom::combinator::{map, opt};
-use build_script_shared::{InputType, compose_test};
-use build_script_shared::error::{ParserResult, ComposerResult};
-use build_script_shared::parsers::{ParserDeserialize, ws, ParserSerialize};
 use nom::sequence::terminated;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Dummy, Clone, Copy)]
+#[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Dummy, Clone, Copy, Serialize, Deserialize)]
 pub enum Visibility {
     Public,
     Local,
-    Private
 }
 
 impl<I: InputType> ParserDeserialize<I> for Visibility {
     fn parse(s: I) -> ParserResult<I, Self> {
         ws(map(
-            opt(
-                alt((
-                    map(terminated(tag("pub"), multispace1), |_| Visibility::Public),
-                    map(terminated(tag("local"), multispace1), |_| Visibility::Local)
-                ))
-            ),
-            |o| o.unwrap_or_else(|| Visibility::Private)
+            opt(map(terminated(tag("pub"), multispace1), |_| Visibility::Public)),
+            |o| o.unwrap_or_else(|| Visibility::Local),
         ))(s)
     }
 }
 
 impl ParserSerialize for Visibility {
-    fn compose<W: std::fmt::Write>(&self, f: &mut W) -> ComposerResult<()> {
+    fn compose<W: std::fmt::Write>(&self, f: &mut W, ctx: ComposeContext) -> ComposerResult<()> {
+        let indents = ctx.create_indents();
         match self {
-            Visibility::Private => write!(f, ""),
-            Visibility::Public => write!(f, "pub "),
-            Visibility::Local => write!(f, "local "),
+            Visibility::Public => write!(f, "{indents}pub "),
+            Visibility::Local => write!(f, "{indents}"),
         }?;
         Ok(())
     }
@@ -45,13 +40,12 @@ impl ParserSerialize for Visibility {
 impl Display for Visibility {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Visibility::Private => write!(f, ""),
+            Visibility::Local => write!(f, ""),
             Visibility::Public => write!(f, "pub"),
-            Visibility::Local => write!(f, "local"),
         }?;
 
         Ok(())
     }
 }
 
-compose_test!{visibility_compose, Visibility}
+compose_test! {visibility_compose, Visibility}

@@ -1,4 +1,5 @@
 use super::*;
+use build_script_shared::dependency_graph::DependencyGraph;
 use build_script_shared::error::*;
 use build_script_shared::parsers::*;
 use build_script_shared::*;
@@ -9,7 +10,10 @@ use nom::error::context;
 use nom::multi::*;
 use nom::sequence::*;
 use nom::Err;
+use serde::Deserialize;
+use serde::Serialize;
 use std::collections::hash_map::DefaultHasher;
+use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -18,10 +22,12 @@ use std::hash::{Hash, Hasher};
 
 pub type DefaultSchema<'a> = Schema<InputMarkerRef<'a>>;
 
-#[derive(PartialEq, Eq, Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(bound = "I: Default + Clone")]
 pub struct Schema<I> {
     pub version: Ident<I>,
     pub content: Vec<SchemaStm<I>>,
+    #[serde(skip)]
     marker: Mark<I>,
 }
 
@@ -39,19 +45,11 @@ impl<I> Schema<I> {
 }
 
 impl<I> Schema<I> {
-    pub fn check_integrity(&self) -> ParserSlimResult<I, ()>
+    pub fn nodes(&self) -> impl Iterator<Item = &NodeExp<I>> 
     where
-        I: Clone + Default,
+        I: Ord
     {
-        self.check_attributes()?;
-        self.check_types()?;
-        self.check_cycles()?;
-
-        Ok(())
-    }
-
-    pub fn nodes(&self) -> impl Iterator<Item = &NodeExp<I>> {
-        self.content.iter().filter_map(|stm| {
+        self.iter().filter_map(|stm| {
             if let SchemaStm::Node(n) = stm {
                 Some(n)
             } else {
@@ -60,8 +58,11 @@ impl<I> Schema<I> {
         })
     }
 
-    pub fn edges(&self) -> impl Iterator<Item = &EdgeExp<I>> {
-        self.content.iter().filter_map(|stm| {
+    pub fn edges(&self) -> impl Iterator<Item = &EdgeExp<I>>
+    where
+        I: Ord
+    {
+        self.iter().filter_map(|stm| {
             if let SchemaStm::Edge(n) = stm {
                 Some(n)
             } else {
@@ -70,8 +71,11 @@ impl<I> Schema<I> {
         })
     }
 
-    pub fn enums(&self) -> impl Iterator<Item = &EnumExp<I>> {
-        self.content.iter().filter_map(|stm| {
+    pub fn enums(&self) -> impl Iterator<Item = &EnumExp<I>>
+    where
+        I: Ord
+    {
+        self.iter().filter_map(|stm| {
             if let SchemaStm::Enum(n) = stm {
                 Some(n)
             } else {
@@ -80,8 +84,11 @@ impl<I> Schema<I> {
         })
     }
 
-    pub fn structs(&self) -> impl Iterator<Item = &StructExp<I>> {
-        self.content.iter().filter_map(|stm| {
+    pub fn structs(&self) -> impl Iterator<Item = &StructExp<I>>
+    where
+        I: Ord
+    {
+        self.iter().filter_map(|stm| {
             if let SchemaStm::Struct(n) = stm {
                 Some(n)
             } else {
@@ -90,6 +97,30 @@ impl<I> Schema<I> {
         })
     }
 
+    pub fn iter(&self) -> impl Iterator<Item = &SchemaStm<I>> 
+    where
+        I: Ord
+    {
+        let mut content: Vec<_> = self.content.iter().collect();
+        content.sort();
+        content.into_iter()
+    }
+
+    /// Make sure that the parsed schema actually makes sense  
+    /// This allows us to seperate the parser and type validation 
+    pub fn check_integrity(&self) -> ParserSlimResult<I, ()>
+    where
+        I: Clone + Default,
+    {
+        self.check_types()?;
+        self.check_cycles()?;
+        self.check_used()?;
+        self.check_attributes()?;
+
+        Ok(())
+    }
+
+    /// Check if attributes has the correct form
     fn check_attributes(&self) -> ParserSlimResult<I, ()>
     where
         I: Clone + Default,
@@ -107,13 +138,14 @@ impl<I> Schema<I> {
         Ok(())
     }
 
+    /// Check if all type references are valid  
     fn check_types(&self) -> ParserSlimResult<I, ()>
     where
         I: Clone + Default,
     {
         let mut all_reference_types = HashSet::new();
         let mut node_reference_types = HashSet::new();
-        let mut data_reference_types = HashSet::new();
+        let mut data_reference_types = HashMap::new();
 
         for stm in &self.content {
             let type_name = stm.get_type();
@@ -139,35 +171,32 @@ impl<I> Schema<I> {
             }
 
             match stm {
-                SchemaStm::Node(_) => {
+                SchemaStm::Node(n) => {
                     node_reference_types.insert(type_name.clone());
+                    data_reference_types.insert(type_name.clone(), Default::default());
                 }
-                SchemaStm::Struct(_) => {
-                    data_reference_types.insert(type_name.clone());
+                SchemaStm::Struct(s) => {
+                    data_reference_types.insert(type_name.clone(), s.generics.get_meta());
                 }
-                SchemaStm::Enum(_) => {
-                    data_reference_types.insert(type_name.clone());
+                SchemaStm::Enum(e) => {
+                    data_reference_types.insert(type_name.clone(), e.generics.get_meta());
                 }
                 SchemaStm::Import(_) => {
-                    data_reference_types.insert(type_name.clone());
+                    data_reference_types.insert(type_name.clone(), Default::default());
                 }
-                SchemaStm::Edge(_) => (),
+                SchemaStm::Edge(_) =>  {
+                    data_reference_types.insert(type_name.clone(), Default::default());
+                },
             }
         }
 
         for stm in &self.content {
             match stm {
-                SchemaStm::Node(n) => {
-                    n.check_types(&node_reference_types)?;
-                    n.fields.check_types(&data_reference_types)?
-                }
-                SchemaStm::Struct(n) => n.fields.check_types(&data_reference_types)?,
-                SchemaStm::Edge(e) => {
-                    e.check_types(&data_reference_types, &node_reference_types)?;
-                    e.fields.check_types(&data_reference_types)?
-                }
+                SchemaStm::Node(n) => n.check_types(&data_reference_types, &node_reference_types)?,
+                SchemaStm::Struct(s) => s.check_types(&data_reference_types)?,
+                SchemaStm::Edge(e) => e.check_types(&data_reference_types, &node_reference_types)?,
                 SchemaStm::Import(_) => (),
-                SchemaStm::Enum(_) => (),
+                SchemaStm::Enum(e) => e.check_types(&data_reference_types)?,
             }
         }
 
@@ -190,33 +219,61 @@ impl<I> Schema<I> {
         Ok(())
     }
 
+    /// Check if any type reference is causing a cycle to form  
+    /// We do not allow cycles as it would require us to store all referenced type in a container such as Box
     fn check_cycles(&self) -> ParserSlimResult<I, ()>
     where
         I: Clone + Default,
     {
-        let mut dependency_graph: HashMap<&Ident<I>, Vec<&Ident<I>>> = HashMap::new();
+        let mut dependency_graph = DependencyGraph::new();
 
         for stm in &self.content {
-            dependency_graph.insert(stm.get_type(), Vec::new());
+            dependency_graph.add_type(stm.get_type());
         }
 
         for stm in &self.content {
             match stm {
                 SchemaStm::Node(n) => {
-                    n.fields.check_cycle(&n.name, &mut dependency_graph)?;
+                    n.check_cycle(&mut dependency_graph)?;
                 }
                 SchemaStm::Struct(n) => {
-                    n.fields.check_cycle(&n.name, &mut dependency_graph)?;
+                    n.check_cycle(&mut dependency_graph)?;
                 }
                 SchemaStm::Edge(e) => {
-                    e.fields.check_cycle(&e.name, &mut dependency_graph)?;
+                    e.check_cycle(&mut dependency_graph)?;
                 }
-                SchemaStm::Enum(_) => (),
+                SchemaStm::Enum(e) => {
+                    e.check_cycle(&mut dependency_graph)?;
+                },
                 SchemaStm::Import(_) => (),
             }
         }
 
         Ok(())
+    }
+
+    /// Make sure that types that requires use are in use
+    pub fn check_used(&self) -> ParserSlimResult<I, ()>
+    where
+        I: Clone,
+    {
+        for stm in &self.content {
+            match stm {
+                SchemaStm::Enum(e) => e.check_used()?,
+                SchemaStm::Struct(s) => s.check_used()?,
+                SchemaStm::Node(_)
+                | SchemaStm::Edge(_)
+                | SchemaStm::Import(_) => ()
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn strip_comments(&mut self) {
+        for stm in &mut self.content {
+            stm.strip_comments();
+        }
     }
 
     pub fn get_type(
@@ -281,8 +338,17 @@ impl<I> Schema<I> {
 impl<I: Ord + Hash + Debug> Hash for Schema<I> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.version.hash(state);
-        let content: BTreeSet<_> = self.content.iter().collect();
+        let content: Vec<_> = self.iter().collect();
         content.hash(state);
+    }
+}
+
+impl<I: Ord> PartialEq for Schema<I> {
+    fn eq(&self, other: &Self) -> bool {
+        let own_content: Vec<_> = self.iter().collect();
+        let other_content: Vec<_> = other.iter().collect();
+
+        self.version.eq(&other.version) && own_content == other_content
     }
 }
 
@@ -298,6 +364,7 @@ impl<I: InputType> ParserDeserialize<I> for Schema<I> {
             "Parsing Schema version",
             surrounded('<', ws(Ident::ident_full), '>'),
         )(s)?;
+        
         let (s, (content, marker)) = context(
             "Parsing Schema",
             marked(terminated(
@@ -326,11 +393,11 @@ impl<I: InputType> ParserDeserialize<I> for Schema<I> {
 }
 
 impl<I> ParserSerialize for Schema<I> {
-    fn compose<W: std::fmt::Write>(&self, f: &mut W) -> ComposerResult<()> {
+    fn compose<W: std::fmt::Write>(&self, f: &mut W, ctx: ComposeContext) -> ComposerResult<()> {
         writeln!(f, "<{}>", self.version)?;
 
         for stm in &self.content {
-            stm.compose(f)?;
+            stm.compose(f, ctx)?;
             writeln!(f, "")?;
         }
 
@@ -340,6 +407,7 @@ impl<I> ParserSerialize for Schema<I> {
 
 const SCHEMA_CONTENT_DUMMY_LENGTH: usize = 30;
 const DUMMY_MAX_ORDER: usize = 10;
+const DUMMY_MAX_GENERICS: usize = 5;
 
 impl<I: Dummy<Faker> + Clone> Dummy<Faker> for Schema<I> {
     fn dummy_with_rng<R: rand::prelude::Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
@@ -349,6 +417,7 @@ impl<I: Dummy<Faker> + Clone> Dummy<Faker> for Schema<I> {
                 (
                     Ident::dummy_with_rng(config, rng),
                     rng.gen_range(0..DUMMY_MAX_ORDER),
+                    rng.gen_range(0..DUMMY_MAX_GENERICS),
                     SchemaStmType::dummy_with_rng(config, rng),
                 )
             })
@@ -356,11 +425,11 @@ impl<I: Dummy<Faker> + Clone> Dummy<Faker> for Schema<I> {
 
         let mut all_types = HashSet::new();
         let mut node_type_names = HashSet::new();
-        let mut ref_type_names: HashMap<_, HashSet<_>> = HashMap::new();
+        let mut ref_type_names: HashMap<_, HashMap<_, usize>> = HashMap::new();
 
         // Make sure that all the types do not overlap
         let mut i = 0;
-        while let Some((ident, order, ty)) = content_type.get_mut(i) {
+        while let Some((ident, order, generic_count, ty)) = content_type.get_mut(i) {
             let name = ident.to_string();
             match ty {
                 SchemaStmType::Node => {
@@ -381,7 +450,8 @@ impl<I: Dummy<Faker> + Clone> Dummy<Faker> for Schema<I> {
                         node_type_names.insert(name);
                     }
                 }
-                SchemaStmType::Struct | SchemaStmType::Enum | SchemaStmType::Import => {
+                SchemaStmType::Struct 
+                | SchemaStmType::Enum  => {
                     // Make sure the name is globally unique
                     if all_types.contains(&*name) {
                         // Update the name for next time we check
@@ -391,13 +461,32 @@ impl<I: Dummy<Faker> + Clone> Dummy<Faker> for Schema<I> {
 
                     // Make sure the name is unique amongst reference types
                     let ref_type_names = ref_type_names.entry(*order).or_default();
-                    if ref_type_names.contains(&name) {
+                    if ref_type_names.contains_key(&name) {
                         // Update the name for next time we check
                         *ident = Ident::dummy_with_rng(&Faker, rng);
                         continue;
                     } else {
                         all_types.insert(name.to_string());
-                        ref_type_names.insert(name);
+                        ref_type_names.insert(name, *generic_count);
+                    }
+                },
+                SchemaStmType::Import => {
+                    // Make sure the name is globally unique
+                    if all_types.contains(&*name) {
+                        // Update the name for next time we check
+                        *ident = Ident::dummy_with_rng(&Faker, rng);
+                        continue;
+                    }
+
+                    // Make sure the name is unique amongst reference types
+                    let ref_type_names = ref_type_names.entry(*order).or_default();
+                    if ref_type_names.contains_key(&name) {
+                        // Update the name for next time we check
+                        *ident = Ident::dummy_with_rng(&Faker, rng);
+                        continue;
+                    } else {
+                        all_types.insert(name.to_string());
+                        ref_type_names.insert(name, 0);
                     }
                 }
 
@@ -412,20 +501,22 @@ impl<I: Dummy<Faker> + Clone> Dummy<Faker> for Schema<I> {
             version: Ident::dummy_with_rng(config, rng),
             content: content_type
                 .into_iter()
-                .map(|(name, order, ty)| {
+                .map(|(name, order, generic_count, ty)| {
                     SchemaStm::dummy_with_rng(
                         &SchemaStmOfType {
                             name,
                             ty,
+                            generic_count,
                             node_types: node_type_names.clone(),
-                            ref_types: ref_type_names
-                                .iter()
-                                // Only allow references to values lower in the order than one self
-                                // This stops refference cycles from forming
-                                .filter(|(i, _)| &&order > i)
-                                .flat_map(|(_, types)| types.iter())
-                                .cloned()
-                                .collect(),
+                            ref_types: TypeReferenceMap (
+                                ref_type_names
+                                    .iter()
+                                    // Only allow references to values lower in the order than one self
+                                    // This stops refference cycles from forming
+                                    .filter(|(i, _)| &&order > i)
+                                    .flat_map(|(_, types)| types.clone().into_iter())
+                                    .collect()
+                            ),
                         },
                         rng,
                     )
@@ -437,6 +528,48 @@ impl<I: Dummy<Faker> + Clone> Dummy<Faker> for Schema<I> {
 }
 
 compose_test! {schema_compose, Schema<I>}
+
+#[test]
+fn schema_reorder_hash_test() {
+    let import0: ImportExp<String> = ImportExp::new(
+        Ident::new("Import0", Mark::dummy(&Faker)),
+        Default::default(), 
+        Mark::dummy(&Faker)
+    );
+
+    let import1: ImportExp<String> = ImportExp::new(
+        Ident::new("Import1", Mark::dummy(&Faker)),
+        Default::default(), 
+        Mark::dummy(&Faker)
+    );
+
+    let version = Ident::dummy(&Faker);
+    let mark: Mark<String> = Mark::dummy(&Faker);
+
+    let schema0 = Schema::new(
+        version.clone(),
+        vec![
+            SchemaStm::Import(import0.clone()),
+            SchemaStm::Import(import1.clone())
+        ],
+        mark.clone()
+    );
+
+    let schema1 = Schema::new(
+        version,
+        vec![
+            SchemaStm::Import(import1),
+            SchemaStm::Import(import0)
+        ],
+        mark
+    );
+
+
+    let hash0 = schema0.get_hash();
+    let hash1 = schema1.get_hash();
+
+    assert_eq!(hash0, hash1);
+}
 
 #[test]
 fn cycle_test() {
@@ -468,6 +601,62 @@ fn cycle_test() {
     <Cycle2>
     struct A {
         field: A
+    };";
+
+    assert_eq!(
+        Schema::parse(s0),
+        ParserResult::<_, _>::Err(Err::Failure(ParserError::new(
+            "D",
+            ParserErrorKind::CyclicReference
+        )))
+    );
+    assert_eq!(
+        Schema::parse(s1),
+        ParserResult::<_, _>::Err(Err::Failure(ParserError::new(
+            "A",
+            ParserErrorKind::CyclicReference
+        )))
+    );
+}
+
+#[test]
+fn cycle_proxy_test() {
+    // This has the cycle A -> B -> C -> D -> E -> A
+    let s0 = "
+    <CycleProxy1>
+    struct A {
+        field: Proxy<B>
+    };
+
+    struct B {
+        field: Proxy<C>
+    };
+    
+    struct D {
+        field: Proxy<E>
+    };
+    
+    struct E {
+        field: Proxy<A>
+    };
+    
+    struct C {
+        field: Proxy<D>
+    };
+    
+    struct Proxy<K> {
+        k: K
+    };";
+
+    // Has cycle A -> A
+    let s1 = "
+    <CycleProxy2>
+    struct A {
+        field: Proxy<A>
+    };
+
+    struct Proxy<K> {
+        k: K
     };";
 
     assert_eq!(

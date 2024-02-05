@@ -1,10 +1,13 @@
+use std::fmt::Display;
+use std::fmt::Write;
+
 #[derive(Default, Debug)]
 pub struct CodePreview {
-    pub preview: String,
-    pub line_number_start: usize,
-    pub line_number_end: usize,
-    pub caret_line_number: usize,
-    pub caret_offset: usize,
+    preview: String,
+    line_number_start: usize,
+    line_number_end: usize,
+    caret_line_number: usize,
+    caret_offset: usize,
 }
 
 impl CodePreview {
@@ -93,7 +96,7 @@ impl CodePreview {
                 }
                 lines_left -= 1;
             }
-            
+
             total_lines += 1;
             line_offset += line_len;
         }
@@ -106,17 +109,69 @@ impl CodePreview {
             caret_offset: caret_offset - caret_line_start_idx,
         }
     }
+
+    pub fn line_number_start(&self) -> usize {
+        self.line_number_start
+    }
+    pub fn line_number_end(&self) -> usize {
+        self.line_number_end
+    }
+    pub fn caret_line_number(&self) -> usize {
+        self.caret_line_number
+    }
+    pub fn caret_offset(&self) -> usize {
+        self.caret_offset
+    }
+
+    pub fn showcase(s: String) -> String {
+        s.split('\n')
+            .enumerate()
+            .map(|(nr, line)| format!("{nr:>5} | {line}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    pub fn diff_string(left: &str, right: &str) -> String {
+        let char_iter = left.chars().zip(right.chars()).enumerate();
+        let mut caret_pos = None;
+        for (i, (l, r)) in char_iter {
+            if l != r {
+                caret_pos = Some(i);
+                break;
+            } 
+        }
+    
+        if caret_pos.is_none() && left.len() != right.len() {
+            caret_pos = Some(left.len().min(right.len()));
+        }
+    
+        let mut str_builder = String::new();
+        if let Some(caret_offset) = caret_pos {
+            let _ = writeln!(&mut str_builder, "Left:");
+            let preview = CodePreview::new(left, caret_offset, 1, 2, 2);
+            let _ = writeln!(&mut str_builder, "{}", preview.preview);
+            let _ = writeln!(&mut str_builder);
+            let _ = writeln!(&mut str_builder, "Right:");
+            let preview = CodePreview::new(right, caret_offset, 1, 2, 2);
+            let _ = writeln!(&mut str_builder, "{}", preview.preview);
+        } else {
+            let _ = writeln!(&mut str_builder, "Found no difference");
+            let _ = writeln!(&mut str_builder);
+        }
+
+        str_builder
+    }
+}
+
+impl Display for CodePreview {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "{}", self.preview)
+    }
 }
 
 #[test]
 fn preview_test_wide_offset_1() {
-    let preview = CodePreview::new(
-        "a\na\ns",
-        2,
-        2,
-        2,
-        2
-    );
+    let preview = CodePreview::new("a\na\ns", 2, 2, 2, 2);
     assert_eq!(
         preview.preview,
         "    0 | a
@@ -128,13 +183,7 @@ fn preview_test_wide_offset_1() {
 
 #[test]
 fn preview_test_wide_offset_2() {
-    let preview = CodePreview::new(
-        "a\na\ns",
-        0,
-        2,
-        2,
-        2
-    );
+    let preview = CodePreview::new("a\na\ns", 0, 2, 2, 2);
     assert_eq!(
         preview.preview,
         "    0 | a
@@ -146,13 +195,7 @@ fn preview_test_wide_offset_2() {
 
 #[test]
 fn preview_test_len_1() {
-    let preview = CodePreview::new(
-        "a\na\ns",
-        2,
-        4,
-        2,
-        2
-    );
+    let preview = CodePreview::new("a\na\ns", 2, 4, 2, 2);
     assert_eq!(
         preview.preview,
         "    0 | a
@@ -165,13 +208,7 @@ fn preview_test_len_1() {
 
 #[test]
 fn preview_test_offset_1() {
-    let preview = CodePreview::new(
-        "a\na\ns",
-        0,
-        1,
-        2,
-        2
-    );
+    let preview = CodePreview::new("a\na\ns", 0, 1, 2, 2);
     assert_eq!(
         preview.preview,
         "    0 | a
@@ -183,13 +220,7 @@ fn preview_test_offset_1() {
 
 #[test]
 fn preview_test_offset_2() {
-    let preview = CodePreview::new(
-        "a\na\ns",
-        1,
-        1,
-        2,
-        2
-    );
+    let preview = CodePreview::new("a\na\ns", 1, 1, 2, 2);
     assert_eq!(
         preview.preview,
         "    0 | a
@@ -201,13 +232,7 @@ fn preview_test_offset_2() {
 
 #[test]
 fn preview_test_offset_3() {
-    let preview = CodePreview::new(
-        "a\na\ns",
-        2,
-        1,
-        2,
-        2
-    );
+    let preview = CodePreview::new("a\na\ns", 2, 1, 2, 2);
     assert_eq!(
         preview.preview,
         "    0 | a
@@ -219,13 +244,7 @@ fn preview_test_offset_3() {
 
 #[test]
 fn preview_test_offset_4() {
-    let preview = CodePreview::new(
-        "a\na\ns",
-        3,
-        1,
-        2,
-        2
-    );
+    let preview = CodePreview::new("a\na\ns", 3, 1, 2, 2);
     assert_eq!(
         preview.preview,
         "    0 | a
@@ -237,13 +256,7 @@ fn preview_test_offset_4() {
 
 #[test]
 fn preview_test_offset_5() {
-    let preview = CodePreview::new(
-        "a\na\ns",
-        4,
-        1,
-        2,
-        2
-    );
+    let preview = CodePreview::new("a\na\ns", 4, 1, 2, 2);
     assert_eq!(
         preview.preview,
         "    0 | a
@@ -255,13 +268,7 @@ fn preview_test_offset_5() {
 
 #[test]
 fn preview_test_empty_0() {
-    let preview = CodePreview::new(
-        "\n\n",
-        0,
-        1,
-        2,
-        2
-    );
+    let preview = CodePreview::new("\n\n", 0, 1, 2, 2);
     assert_eq!(
         preview.preview,
         "    0 | 
@@ -273,13 +280,7 @@ fn preview_test_empty_0() {
 
 #[test]
 fn preview_test_empty_1() {
-    let preview = CodePreview::new(
-        "\n\n",
-        1,
-        1,
-        2,
-        2
-    );
+    let preview = CodePreview::new("\n\n", 1, 1, 2, 2);
     assert_eq!(
         preview.preview,
         "    0 | 
@@ -291,13 +292,7 @@ fn preview_test_empty_1() {
 
 #[test]
 fn preview_test_empty_2() {
-    let preview = CodePreview::new(
-        "\n\n",
-        500,
-        1,
-        2,
-        2
-    );
+    let preview = CodePreview::new("\n\n", 500, 1, 2, 2);
     assert_eq!(
         preview.preview,
         "    0 | 
@@ -309,13 +304,7 @@ fn preview_test_empty_2() {
 
 #[test]
 fn preview_test_preview_size() {
-    let preview = CodePreview::new(
-        "0\n1\n2\n3\n4\n5\n6\n7\n8\n9", 
-        8, 
-        1, 
-        2, 
-        2
-    );
+    let preview = CodePreview::new("0\n1\n2\n3\n4\n5\n6\n7\n8\n9", 8, 1, 2, 2);
     assert_eq!(
         preview.preview,
         "    2 | 2
@@ -329,13 +318,7 @@ fn preview_test_preview_size() {
 
 #[test]
 fn preview_test_preview_size_below() {
-    let preview = CodePreview::new(
-        "0\n1\n2\n3\n4\n5\n6\n7\n8\n9", 
-        8, 
-        1, 
-        2, 
-        4
-    );
+    let preview = CodePreview::new("0\n1\n2\n3\n4\n5\n6\n7\n8\n9", 8, 1, 2, 4);
     assert_eq!(
         preview.preview,
         "    2 | 2
@@ -351,13 +334,7 @@ fn preview_test_preview_size_below() {
 
 #[test]
 fn preview_test_preview_size_above() {
-    let preview = CodePreview::new(
-        "0\n1\n2\n3\n4\n5\n6\n7\n8\n9", 
-        8, 
-        1, 
-        4, 
-        2
-    );
+    let preview = CodePreview::new("0\n1\n2\n3\n4\n5\n6\n7\n8\n9", 8, 1, 4, 2);
     assert_eq!(
         preview.preview,
         "    0 | 0

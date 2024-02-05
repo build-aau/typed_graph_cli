@@ -1,5 +1,6 @@
-use super::{marked, Marked, Mark, ParserSerialize};
-use crate::{InputType, compose_test};
+use super::{marked, ComposeContext, Mark, Marked, ParserSerialize};
+use crate::{compose_test, InputType};
+use fake::*;
 use nom::branch::*;
 use nom::bytes::complete::*;
 use nom::character::complete::*;
@@ -8,16 +9,20 @@ use nom::error::{context, ContextError, ParseError};
 use nom::multi::*;
 use nom::sequence::*;
 use nom::IResult;
-use std::ops::Deref;
-use std::hash::{Hash, Hasher};
-use std::fmt::Display;
-use std::iter::once;
-use fake::*;
 use rand::seq::SliceRandom;
+use serde::{Deserialize, Serialize};
+use std::fmt::Display;
+use std::hash::{Hash, Hasher};
+use std::iter::once;
+use std::ops::Deref;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(bound = "I: Default + Clone")]
+#[serde(from = "String")]
+#[serde(into = "String")]
 pub struct Ident<I> {
     name: String,
+    #[serde(skip)]
     marker: Mark<I>,
 }
 
@@ -32,14 +37,14 @@ impl<I> Ident<I> {
         }
     }
 
-    pub fn new_alone<S>(name: S) -> Self 
+    pub fn new_alone<S>(name: S) -> Self
     where
         I: Default,
-        S: ToString
+        S: ToString,
     {
         Ident {
             name: name.to_string(),
-            marker: Mark::null()
+            marker: Mark::null(),
         }
     }
 
@@ -50,7 +55,7 @@ impl<I> Ident<I> {
     {
         Ident {
             name: self.name,
-            marker: self.marker.map(f)
+            marker: self.marker.map(f),
         }
     }
 
@@ -63,26 +68,18 @@ impl<I> Ident<I> {
         let (s, (name, marker)) = marked(context(
             "Parsing Ident",
             recognize(pair(
-                alt((
-                    alpha1, 
-                    tag("_"),
-                    tag("-")
-                )),
-                many0_count(alt((
-                    alphanumeric1, 
-                    tag("_"),
-                    tag("-")
-                ))),
+                alt((alpha1, tag("_"), tag("-"))),
+                many0_count(alt((alphanumeric1, tag("_"), tag("-")))),
             )),
         ))(s)?;
-    
+
         let ident = Ident {
             name: name.to_string(),
             marker,
         };
         Ok((s, ident))
     }
-    
+
     /// Parse an identifyer that can start with a number
     pub fn ident_full<E>(s: I) -> IResult<I, Ident<I>, E>
     where
@@ -92,20 +89,11 @@ impl<I> Ident<I> {
         let (s, (name, marker)) = marked(context(
             "Parsing Full Ident",
             recognize(pair(
-                    alt((
-                        alphanumeric1,
-                        tag("_"),
-                        tag("-"),
-                    )),
-                many0_count(alt((
-                    alphanumeric1, 
-                    tag("_"),
-                    tag("-"),
-                    tag("."),
-                ))),
+                alt((alphanumeric1, tag("_"), tag("-"))),
+                many0_count(alt((alphanumeric1, tag("_"), tag("-"), tag(".")))),
             )),
         ))(s)?;
-    
+
         let ident = Ident {
             name: name.to_string(),
             marker,
@@ -115,8 +103,9 @@ impl<I> Ident<I> {
 }
 
 impl<I> ParserSerialize for Ident<I> {
-    fn compose<W: std::fmt::Write>(&self, f: &mut W) -> crate::error::ComposerResult<()> {
-        write!(f, "{}", self)?;
+    fn compose<W: std::fmt::Write>(&self, f: &mut W, ctx: ComposeContext) -> crate::error::ComposerResult<()> {
+        let indent = ctx.create_indents();
+        write!(f, "{indent}{self}")?;
         Ok(())
     }
 }
@@ -155,6 +144,21 @@ impl<I> PartialOrd for Ident<I> {
     }
 }
 
+impl<I> From<String> for Ident<I> 
+where
+    I: Default
+{
+    fn from(value: String) -> Self {
+        Ident::new_alone(value)
+    }
+}
+
+impl<I> Into<String> for Ident<I> {
+    fn into(self) -> String {
+        self.name
+    }
+}
+
 impl<I> Ord for Ident<I> {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.name.cmp(&other.name)
@@ -186,7 +190,7 @@ fn gen_any_char<R: Rng + ?Sized>(rng: &mut R) -> char {
     match rng.gen_range(0..10) {
         0..=2 => rng.gen_range('A'..='Z'),
         3..=6 => rng.gen_range('a'..='z'),
-        7 => *['-', '_'].choose(rng).unwrap() ,
+        7 => *['-', '_'].choose(rng).unwrap(),
         _ => rng.gen_range('0'..='9'),
     }
 }
@@ -205,11 +209,12 @@ impl<I: Dummy<Faker>> Dummy<SimpleIdentDummy> for Ident<I> {
         let len = rng.gen_range(6..IDENT_DUMMY_LENGTH);
 
         let s: String = once(gen_alpha(rng))
-            .chain((0..len).map(|_| gen_any_char(rng))).collect();
+            .chain((0..len).map(|_| gen_any_char(rng)))
+            .collect();
 
-        Ident { 
-            name: s.clone(), 
-            marker: Mark::new(I::dummy_with_rng(&Faker, rng))
+        Ident {
+            name: s.clone(),
+            marker: Mark::new(I::dummy_with_rng(&Faker, rng)),
         }
     }
 }
@@ -220,14 +225,15 @@ impl<I: Dummy<Faker>> Dummy<FullIdentDummy> for Ident<I> {
         let len = rng.gen_range(6..IDENT_DUMMY_LENGTH);
 
         let s: String = once(gen_alphanumeric(rng))
-            .chain((0..len).map(|_| gen_any_char(rng))).collect();
+            .chain((0..len).map(|_| gen_any_char(rng)))
+            .collect();
 
-        Ident { 
-            name: s.clone(), 
-            marker: Mark::dummy_with_rng(&Faker, rng)
+        Ident {
+            name: s.clone(),
+            marker: Mark::dummy_with_rng(&Faker, rng),
         }
     }
 }
 
-compose_test!{ident_compose, Ident<I> with parser Ident::ident}
-compose_test!{ident_full_compose, Ident<I> with parser Ident::ident_full}
+compose_test! {ident_compose, Ident<I> with parser Ident::ident}
+compose_test! {ident_full_compose, Ident<I> with parser Ident::ident_full}

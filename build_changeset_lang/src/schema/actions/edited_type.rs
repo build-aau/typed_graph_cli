@@ -1,18 +1,19 @@
 use std::fmt::Display;
 
 use build_script_lang::schema::*;
-use build_script_shared::InputType;
 use build_script_shared::compose_test;
 use build_script_shared::parsers::*;
+use build_script_shared::InputType;
 
 use fake::Dummy;
+use nom::character::complete::*;
 use nom::error::context;
 use nom::sequence::*;
-use nom::character::complete::*;
 
-use crate::{ChangeSetResult, ChangeSetError};
+use crate::{ChangeSetError, ChangeSetResult};
 
-/// "+ (node|edge(\<end_points\>)|struct|enum) \<ident\>"
+/// "\<attributes\>
+/// * (node|edge(\<end_points\>)|struct|enum) \<ident\>"
 #[derive(PartialEq, Eq, Debug, Clone, Hash, Dummy)]
 pub struct EditedType<I> {
     pub comments: Comments,
@@ -23,28 +24,28 @@ pub struct EditedType<I> {
 
 impl<I> EditedType<I> {
     /// Move from one input type to another
-    pub fn map<O, F>(self, f: F) -> EditedType<O> 
+    pub fn map<O, F>(self, f: F) -> EditedType<O>
     where
-        F: Fn(I) -> O + Copy
+        F: Fn(I) -> O + Copy,
     {
         EditedType {
             comments: self.comments,
             attributes: self.attributes.map(f),
             type_name: self.type_name.map(f),
-            type_type: self.type_type
+            type_type: self.type_type,
         }
     }
 
-    pub fn apply(&self, schema: &mut Schema<I>) -> ChangeSetResult<()> 
+    pub fn apply(&self, schema: &mut Schema<I>) -> ChangeSetResult<()>
     where
-        I: Default + Clone + PartialEq
+        I: Default + Clone + PartialEq,
     {
-        let stm = schema.get_type_mut(Some(self.type_type), &self.type_name).ok_or_else(|| {
-            ChangeSetError::InvalidAction { 
-                action: format!("edit quantity"), 
-                reason: format!("no edge type named {} exists", self.type_name) 
-            }
-        })?;
+        let stm = schema
+            .get_type_mut(Some(self.type_type), &self.type_name)
+            .ok_or_else(|| ChangeSetError::InvalidAction {
+                action: format!("edit quantity"),
+                reason: format!("no {} named {} exists", self.type_type, self.type_name),
+            })?;
 
         let current_comments = match stm {
             SchemaStm::Node(n) => &mut n.comments,
@@ -58,9 +59,9 @@ impl<I> EditedType<I> {
 
         match stm {
             SchemaStm::Edge(e) => e.attributes = self.attributes.clone(),
-            _ => ()
+            SchemaStm::Node(n) => n.attributes = self.attributes.clone(),
+            _ => (),
         }
-
 
         Ok(())
     }
@@ -73,14 +74,8 @@ impl<I: InputType> ParserDeserialize<I> for EditedType<I> {
             tuple((
                 Comments::parse,
                 Attributes::parse,
-                preceded(
-                    ws(char('*')),
-                    pair(
-                        SchemaStmType::parse, 
-                        ws(Ident::ident)
-                    ),
-                )
-            ))
+                preceded(ws(char('*')), pair(SchemaStmType::parse, ws(Ident::ident))),
+            )),
         )(s)?;
 
         Ok((
@@ -88,31 +83,37 @@ impl<I: InputType> ParserDeserialize<I> for EditedType<I> {
             EditedType {
                 comments,
                 attributes,
-                type_type, 
-                type_name
+                type_type,
+                type_name,
             },
         ))
     }
 }
 
 impl<I> ParserSerialize for EditedType<I> {
-    fn compose<W: std::fmt::Write>(&self, f: &mut W) -> build_script_shared::error::ComposerResult<()> {
-        self.comments.compose(f)?;
-        self.attributes.compose(f)?;
-        write!(f, "* ")?;
-        self.type_type.compose(f)?;
+    fn compose<W: std::fmt::Write>(
+        &self,
+        f: &mut W,
+        ctx: ComposeContext
+    ) -> build_script_shared::error::ComposerResult<()> {
+        let indents = ctx.create_indents();
+        let new_ctx = ctx.set_indents(0);
+
+        self.comments.compose(f, ctx)?;
+        self.attributes.compose(f, ctx)?;
+        write!(f, "{indents}* ")?;
+        self.type_type.compose(f, new_ctx)?;
         write!(f, " ")?;
-        self.type_name.compose(f)?;
+        self.type_name.compose(f, new_ctx)?;
         Ok(())
     }
 }
 
 impl<I> Display for EditedType<I> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let ser = self.serialize_to_string()
-            .map_err(|_| std::fmt::Error)?;
+        let ser = self.serialize_to_string().map_err(|_| std::fmt::Error)?;
         write!(f, "{}", ser)
     }
 }
 
-compose_test!{edited_type_compose, EditedType<I>}
+compose_test! {edited_type_compose, EditedType<I>}

@@ -10,5 +10,4 @@ syntax: glob
 __pycache__
 .hg
 .hgignore
-project/schemas
-project/changesets
+project/

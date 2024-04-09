@@ -1,11 +1,12 @@
 use build_changeset_lang::{ChangeSet, FieldPath, SingleChange};
-use build_script_lang::schema::{NodeExp, Schema, Visibility};
-use build_script_shared::InputType;
+use build_script_lang::schema::{NodeExp, Schema};
 use std::collections::HashSet;
 use std::fmt::Write;
 use std::path::Path;
 
 use crate::{targets, CodeGenerator, GenResult, GeneratedCode, ToRustType, ToSnakeCase};
+
+use super::{write_comments, write_fields, FieldFormatter};
 
 impl<I> CodeGenerator<targets::Rust> for NodeExp<I> {
     fn get_filename(&self) -> String {
@@ -31,13 +32,13 @@ impl<I> CodeGenerator<targets::Rust> for NodeExp<I> {
         writeln!(s, "#[allow(unused_imports)]")?;
         writeln!(s, "use super::super::*;")?;
         writeln!(s, "#[allow(unused_imports)]")?;
-        writeln!(s, "use std::collections::HashMap;")?;
+        writeln!(s, "use indexmap::IndexMap;")?;
         writeln!(s, "use typed_graph::*;")?;
         writeln!(s, "use serde::{{Serialize, Deserialize}};")?;
         #[cfg(feature = "diff")]
         writeln!(s, "use changesets::Changeset;")?;
 
-        let attributes = vec![
+        let mut derive_traits = vec![
             "Clone".to_string(),
             "Debug".to_string(),
             "Serialize".to_string(),
@@ -45,34 +46,40 @@ impl<I> CodeGenerator<targets::Rust> for NodeExp<I> {
             #[cfg(feature = "diff")]
             "Changeset".to_string(),
         ];
-        let attribute_s = attributes.join(", ");
+        let derive_funcs = self.attributes.get_functions("derive");
+        for derived in derive_funcs {
+            for value in &derived.values {
+                derive_traits.push(value.to_string());
+            }
+        }
+        let derive_traits_s = derive_traits.join(", ");
 
         writeln!(s, "")?;
-        for comment in self.comments.iter_doc() {
-            writeln!(s, "/// {comment}")?;
-        }
-        writeln!(s, "#[derive({attribute_s})]")?;
-        write!(s, "pub struct {node_type}<NK>")?;
-        writeln!(s, "   {{")?;
-        write!(s, "    pub(crate) id: NK")?;
-        for field_value in self.fields.iter() {
-            let field_name = &field_value.name;
 
-            writeln!(s, ",")?;
-            for comment in field_value.comments.iter_doc() {
-                writeln!(s, "   /// {comment}")?;
+        write_comments(
+            &mut s, 
+            &self.comments, 
+            FieldFormatter {
+                indents: 0,
+                include_visibility: true
             }
-            let vis = match field_value.visibility {
-                Visibility::Local => "pub(crate) ",
-                Visibility::Public => "pub ",
-            };
-            let field_type = &field_value.field_type.to_rust_type();
-            write!(s, "    {vis}{field_name}: {field_type}")?;
-        }
+        )?;
+        writeln!(s, "#[derive({derive_traits_s})]")?;
+        writeln!(s, "pub struct {node_type}<NK> {{")?;
+        writeln!(s, "    pub(crate) id: NK,")?;
+        write_fields(
+            &mut s, 
+            &self.fields,
+            FieldFormatter {
+                indents: 1,
+                include_visibility: true
+            }
+        )?;
         writeln!(s, "")?;
         writeln!(s, "}}")?;
 
         writeln!(s, "")?;
+        writeln!(s, "#[allow(unused)]")?;
         writeln!(s, "impl<NK> {node_type}<NK> {{")?;
         writeln!(s, "    pub fn new(")?;
         write!(s, "       id: NK")?;
@@ -255,11 +262,10 @@ pub(super) fn write_nodes_rs<I: Ord>(
     let name_type = nodes.iter().map(|e| e.fields.get_field("name")).fold(
         Some(HashSet::new()),
         |acc, name_field| {
-            acc.zip(name_field)
-                .map(|(mut field_types, field_value)| {
-                    field_types.insert(field_value.field_type.to_string());
-                    field_types
-                })
+            acc.zip(name_field).map(|(mut field_types, field_value)| {
+                field_types.insert(field_value.field_type.to_string());
+                field_types
+            })
         },
     );
 
@@ -303,7 +309,7 @@ pub(super) fn write_nodes_rs<I: Ord>(
         writeln!(node, "")?;
         writeln!(
             node,
-            "impl<'a, NK, EK, S> Downcast<'a, NK, EK, &'a {node_type}<NK>, S> for Node<NK>"
+            "impl<'b, NK, EK, S> Downcast<'b, NK, EK, &'b {node_type}<NK>, S> for Node<NK>"
         )?;
         writeln!(node, "where")?;
         writeln!(node, "    NK: Key,")?;
@@ -312,7 +318,7 @@ pub(super) fn write_nodes_rs<I: Ord>(
         writeln!(node, "{{")?;
         writeln!(
             node,
-            "    fn downcast(&'a self) -> SchemaResult<&'a {node_type}<NK>, NK, EK, S> {{"
+            "    fn downcast<'a: 'b>(&'a self) -> SchemaResult<&'a {node_type}<NK>, NK, EK, S> {{"
         )?;
         writeln!(node, "        match self {{")?;
         writeln!(node, "            Node::{node_type}(n) => Ok(n),")?;
@@ -329,7 +335,7 @@ pub(super) fn write_nodes_rs<I: Ord>(
         writeln!(node, "")?;
         writeln!(
             node,
-            "impl<'a, NK, EK, S> DowncastMut<'a, NK, EK, &'a mut {node_type}<NK>, S> for Node<NK>"
+            "impl<'b, NK, EK, S> DowncastMut<'b, NK, EK, &'b mut {node_type}<NK>, S> for Node<NK>"
         )?;
         writeln!(node, "where")?;
         writeln!(node, "    NK: Key,")?;
@@ -338,7 +344,7 @@ pub(super) fn write_nodes_rs<I: Ord>(
         writeln!(node, "{{")?;
         writeln!(
             node,
-            "    fn downcast_mut(&'a mut self) -> SchemaResult<&'a mut {node_type}<NK>, NK, EK, S> {{"
+            "    fn downcast_mut<'a: 'b>(&'a mut self) -> SchemaResult<&'a mut {node_type}<NK>, NK, EK, S> {{"
         )?;
         writeln!(node, "        match self {{")?;
         writeln!(node, "            Node::{node_type}(n) => Ok(n),")?;

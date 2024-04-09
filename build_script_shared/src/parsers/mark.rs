@@ -1,6 +1,5 @@
 use super::Marked;
 use fake::*;
-use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
@@ -56,7 +55,7 @@ impl<I> Marked<I> for &Mark<I> {
     }
 }
 
-// Since the mark sometimes include the entire source file we leave it out of the debug.  
+// Since the mark sometimes include the entire source file we leave it out of the debug.
 // That way debug info becomes less cluttered
 impl<I> Debug for Mark<I> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

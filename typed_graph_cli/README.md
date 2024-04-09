@@ -1,10 +1,10 @@
-# migration_handler
+# typed_graph_cli
 Provides a command line interface for auto generating typed_graph interfaces for rust, python and possibly others in the future.
 
 # Getting started
 To create a new project run
 ```
-> migration_handler new
+> typed_graph_cli new
 ```
 
 

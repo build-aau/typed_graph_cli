@@ -49,20 +49,6 @@ impl Process<ProjectSettings> for List {
             }
         }
 
-        /*
-        for schema_id in project.iter_schema() {
-            let previous_versions = version_map.get(schema_id);
-            if let Some(previous_versions) = previous_versions {
-                for previous_version in previous_versions {
-                    println!("| {}", previous_version);
-                }
-                println!("v");
-            }
-            let schema = project.get_schema(schema_id)?;
-            println!("{}({:#16x})", schema_id, schema.get_hash());
-        }
-         */
-
         Ok(())
     }
 }

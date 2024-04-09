@@ -8,16 +8,28 @@ use fake::Faker;
 use nom::character::complete::*;
 use nom::error::context;
 use nom::sequence::pair;
+use nom::sequence::tuple;
 use nom::Err;
-use rand::seq::IteratorRandom;
 use serde::Deserialize;
 use serde::Serialize;
-use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::hash::Hash;
-
 use super::Visibility;
+
+const JSON: &str = "json";
+
+const ALLOWED_FUNCTION_KEY_VALUE_ATTRIBUTES: &[(&str, &str)] = &[
+    (JSON, "alias"), 
+];
+
+const ALLOWED_FUNCTION_ATTRIBUTE_VALUES: &[&str] = &[
+    "skip"
+];
+
+const ALLOWED_FUNCTION_ATTRIBUTES: &[(&str, Option<usize>)] = &[
+    (JSON, Some(1)),
+];
 
 #[derive(Debug, Clone, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(bound = "I: Default + Clone")]
@@ -32,13 +44,19 @@ pub struct Fields<I> {
 pub struct FieldValue<I> {
     pub name: Ident<I>,
     pub visibility: Visibility,
+    #[dummy(faker = "AllowedAttributes(
+        AllowedKeyValueAttribute(&[]),
+        AllowedFunctionAttribute(ALLOWED_FUNCTION_ATTRIBUTES), 
+        AllowedFunctionKeyValueAttribute(ALLOWED_FUNCTION_KEY_VALUE_ATTRIBUTES)
+    )")]
+    pub attributes: Attributes<I>,
     #[serde(flatten)]
     pub comments: Comments,
     pub field_type: Types<I>,
     /// The order in which the field should be shown.  
     /// Having multiple fields on the same order is undefined behaviour
     #[serde(skip)]
-    pub order: u64
+    pub order: u64,
 }
 
 impl<I> Fields<I> {
@@ -63,11 +81,14 @@ impl<I> Fields<I> {
     }
 
     pub fn has_field<'a, S: PartialEq<&'a str>>(&'a self, field_name: S) -> bool {
-        self.fields.iter().any(|field| field_name == field.name.as_str())
+        self.fields
+            .iter()
+            .any(|field| field_name == field.name.as_str())
     }
 
     pub fn remove_field(&mut self, field_name: &Ident<I>) -> Option<FieldValue<I>> {
-        let remove_idx = self.fields
+        let remove_idx = self
+            .fields
             .iter()
             .position(|field| &field.name == field_name);
 
@@ -85,14 +106,13 @@ impl<I> Fields<I> {
         self.fields.iter().find(|field| field_name == &field.name)
     }
 
-    pub fn get_field_mut<S>(
-        &mut self,
-        field_name: S,
-    ) -> Option<&mut FieldValue<I>> 
+    pub fn get_field_mut<S>(&mut self, field_name: S) -> Option<&mut FieldValue<I>>
     where
-        S: for<'a> PartialEq<&'a str>
+        S: for<'a> PartialEq<&'a str>,
     {
-        self.fields.iter_mut().find(|field| field_name == &field.name)
+        self.fields
+            .iter_mut()
+            .find(|field| field_name == &field.name)
     }
 
     pub fn insert_field(&mut self, field_values: FieldValue<I>) {
@@ -100,13 +120,39 @@ impl<I> Fields<I> {
     }
 
     pub fn last_order(&self) -> Option<u64> {
-        self.fields
-            .iter()
-            .map(|v| v.order)
-            .max()
+        self.fields.iter().map(|v| v.order).max()
     }
 
-    pub fn check_types(&self, reference_types: &HashMap<Ident<I>, Vec<String>>) -> ParserSlimResult<I, ()>
+    pub fn check_attributes(&self) -> ParserSlimResult<I, ()>
+    where
+        I: Clone,
+    {
+        for field_value in &self.fields {
+            field_value.attributes.check_attributes(
+                &[], 
+                ALLOWED_FUNCTION_ATTRIBUTES, 
+                ALLOWED_FUNCTION_KEY_VALUE_ATTRIBUTES
+            )?;
+
+            let json_functions = field_value.attributes.get_functions(JSON);
+            for func in json_functions {
+                if let Some(tag) = func.values.get(0) {
+                    if !ALLOWED_FUNCTION_ATTRIBUTE_VALUES.contains(&tag.as_str()) {
+                        return Err(Err::Failure(ParserError::new_at(tag, ParserErrorKind::InvalidAttribute(format!("{}", ALLOWED_FUNCTION_ATTRIBUTE_VALUES.join(","))))));
+                    }
+                } else {
+                    return Err(Err::Failure(ParserError::new_at(func, ParserErrorKind::InvalidAttribute(format!("Expected 1 argument")))));
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn check_types(
+        &self,
+        reference_types: &HashMap<Ident<I>, Vec<String>>,
+    ) -> ParserSlimResult<I, ()>
     where
         I: Clone,
     {
@@ -164,7 +210,9 @@ impl<I> Fields<I> {
         I: Clone,
     {
         for field_value in &self.fields {
-            field_value.field_type.check_cycle(type_name, type_generics, dependency_graph)?;
+            field_value
+                .field_type
+                .check_cycle(type_name, type_generics, dependency_graph)?;
         }
 
         Ok(())
@@ -188,9 +236,10 @@ impl<I> Fields<I> {
                 .map(|field| FieldValue {
                     name: field.name.map(f),
                     visibility: field.visibility,
+                    attributes: field.attributes.map(f),
                     comments: field.comments,
                     field_type: field.field_type.map(f),
-                    order: field.order
+                    order: field.order,
                 })
                 .collect(),
             marker: self.marker.map(f),
@@ -205,14 +254,15 @@ impl<I: InputType> ParserDeserialize<I> for Fields<I> {
             marked(surrounded(
                 '{',
                 punctuated(
-                    pair(
+                    tuple((
                         Comments::parse,
+                        Attributes::parse,
                         key_value(
                             pair(Visibility::parse, Ident::ident),
                             char(':'),
                             Types::parse,
                         ),
-                    ),
+                    )),
                     ',',
                 ),
                 '}',
@@ -222,7 +272,7 @@ impl<I: InputType> ParserDeserialize<I> for Fields<I> {
         // Populate the list of fields
         let mut fields: Vec<FieldValue<I>> = Vec::new();
         let fields_iter = fields_raw.into_iter().enumerate();
-        for (order, (comments, ((visibility, name), ty))) in fields_iter {
+        for (order, (comments, attributes, ((visibility, name), ty))) in fields_iter {
             let first_occurance = fields.iter().find(|field| &field.name == &name);
             if let Some(first) = first_occurance {
                 return Err(Err::Failure(
@@ -237,15 +287,14 @@ impl<I: InputType> ParserDeserialize<I> for Fields<I> {
                     .collect(),
                 ));
             }
-            fields.push(
-                FieldValue {
-                    name,
-                    visibility,
-                    comments,
-                    field_type: ty,
-                    order: order as u64
-                },
-            );
+            fields.push(FieldValue {
+                name,
+                attributes,
+                visibility,
+                comments,
+                field_type: ty,
+                order: order as u64,
+            });
         }
 
         Ok((s, Fields { fields, marker }))
@@ -267,6 +316,7 @@ impl<I> ParserSerialize for Fields<I> {
             }
             let field_ctx = ctx.increment_indents(1);
             field_value.comments.compose(f, field_ctx)?;
+            field_value.attributes.compose(f, field_ctx)?;
             field_value.visibility.compose(f, field_ctx)?;
             field_value.name.compose(f, field_ctx.set_indents(0))?;
             write!(f, ": ")?;
@@ -303,7 +353,7 @@ impl<I: Hash> Hash for Fields<I> {
 impl<I: PartialEq> PartialEq for Fields<I> {
     fn eq(&self, other: &Self) -> bool {
         let self_fields: Vec<_> = self.iter().collect();
-        let other_fields: Vec<_> = self.iter().collect();
+        let other_fields: Vec<_> = other.iter().collect();
 
         if self_fields.len() != other_fields.len() {
             return false;
@@ -345,7 +395,7 @@ impl<I: Dummy<Faker>> Dummy<Faker> for Fields<I> {
                 .enumerate()
                 .map(|(i, name)| {
                     let mut value = FieldValue::dummy_with_rng(&Faker, rng);
-                    
+
                     value.name = Ident::new(name, Mark::dummy_with_rng(&Faker, rng));
                     value.order = i as u64;
 
@@ -364,82 +414,20 @@ impl<I: Dummy<Faker> + Clone> Dummy<FieldWithReferences> for Fields<I> {
         config: &FieldWithReferences,
         rng: &mut R,
     ) -> Self {
-        
         let mut fields = Fields::dummy_with_rng(&Faker, rng);
-        
+
         if config.0.is_empty() {
             fields.fields = Default::default();
             return fields;
         }
 
         for field_value in &mut fields.fields {
-
-            config.0.pick_valid_reference_type(&mut field_value.field_type, rng);
+            config
+                .0
+                .pick_valid_reference_type(&mut field_value.field_type, rng);
         }
-        
+
         fields
-    }
-}
-
-mod field_serde {
-    use super::*;
-    use serde::{Serializer, Deserializer, Serialize, Deserialize};
-    use std::collections::BTreeMap;
-
-    type Container<I> = BTreeMap<Ident<I>, FieldValue<I>>;
-
-    #[derive(Serialize, Deserialize)]
-    #[serde(bound = "I: Default + Clone")]
-    struct FieldValueFullRef<'a, I> {
-        name: Ident<I>,
-        #[serde(flatten)]
-        #[serde(skip_deserializing)]
-        value: Option<&'a FieldValue<I>>
-    }
-
-    #[derive(Serialize, Deserialize)]
-    #[serde(bound = "I: Default + Clone")]
-    struct FieldValueFull<I> {
-        name: Ident<I>,
-        #[serde(flatten)]
-        value: FieldValue<I>
-    }
-
-    pub fn serialize<S, I>(list: &Container<I>, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-        I: Default + Clone
-    {
-        let new_container: Vec<FieldValueFullRef<I>> = list
-            .iter()
-            .map(|(k, v)| {
-                FieldValueFullRef {
-                    name: Ident::new_alone(&k),
-                    value: Some(v)
-                }
-            })
-            .collect();
-        new_container.serialize(serializer)
-    }
-
-    pub fn deserialize<'de, D, I>(deserializer: D) -> Result<Container<I>, D::Error>
-    where
-        D: Deserializer<'de>,
-        I: Default + Clone
-    {
-        let new_container: Vec<FieldValueFull<I>> = Deserialize::deserialize(deserializer)?;
-        Ok(new_container
-            .into_iter()
-            .enumerate()
-            .map(|(order, mut field)| {
-                field.value.order = order as u64;
-
-                (
-                    field.name, 
-                    field.value
-                )
-            })
-            .collect())
     }
 }
 

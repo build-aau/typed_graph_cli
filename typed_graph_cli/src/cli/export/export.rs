@@ -15,7 +15,8 @@ pub struct Export {
 pub enum ExportType {
     Rust(Rust),
     Python(Python),
-    Json(Json)
+    Json(Json),
+    Svg(Svg)
 }
 
 impl Process<ProjectSettings> for Export {
@@ -24,6 +25,7 @@ impl Process<ProjectSettings> for Export {
             ExportType::Rust(r) => r.process(&self.settings.chain(settings)),
             ExportType::Python(py) => py.process(&self.settings.chain(settings)),
             ExportType::Json(json) => json.process(&self.settings.chain(settings)),
+            ExportType::Svg(svg) => svg.process(&self.settings.chain(settings)),
         }
     }
 }

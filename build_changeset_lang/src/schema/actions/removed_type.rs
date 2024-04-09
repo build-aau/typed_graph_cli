@@ -41,18 +41,15 @@ impl<I> RemovedType<I> {
             .ok_or_else(|| ChangeSetError::InvalidAction {
                 action: format!("remove {} {}", self.type_type, self.type_name),
                 reason: format!("no {} with that name exists", self.type_type),
-            })?;
+            })?
+            .clone();
 
-        let idx = schema
-            .content
-            .iter()
-            .position(|ty| ty == stm)
+        schema
+            .remove(stm)
             .ok_or_else(|| ChangeSetError::InvalidAction {
                 action: format!("remove {} {}", self.type_type, self.type_name),
                 reason: format!("no {} with that name exists", self.type_type),
             })?;
-        schema.content.remove(idx);
-
         Ok(())
     }
 }
@@ -78,7 +75,7 @@ impl<I> ParserSerialize for RemovedType<I> {
     fn compose<W: std::fmt::Write>(
         &self,
         f: &mut W,
-        ctx: ComposeContext
+        ctx: ComposeContext,
     ) -> build_script_shared::error::ComposerResult<()> {
         let indents = ctx.create_indents();
         let new_ctx = ctx.set_indents(0);

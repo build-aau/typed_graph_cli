@@ -10,7 +10,7 @@ use nom::error::context;
 use nom::sequence::{pair, preceded};
 use std::fmt::Display;
 
-use crate::{ChangeSetResult, ChangeSetError};
+use crate::{ChangeSetError, ChangeSetResult};
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash, Dummy)]
 pub struct FieldPath<I> {
@@ -36,18 +36,19 @@ impl<I> FieldPath<I> {
 
     pub fn get_field_name_res(&self) -> ChangeSetResult<&Ident<I>> {
         self.get_field_name()
-            .ok_or_else(|| {
-                ChangeSetError::InvalidAction {
-                    action: format!("retrieving field name"),
-                    reason: format!("Failed to find field name in path {}", self),
-                }
+            .ok_or_else(|| ChangeSetError::InvalidAction {
+                action: format!("retrieving field name"),
+                reason: format!("Failed to find field name in path {}", self),
             })
     }
 
     pub fn retrieve_field<'a>(
         &'a self,
         schema: &'a mut Schema<I>,
-    ) -> ChangeSetResult<&'a mut Fields<I>> {
+    ) -> ChangeSetResult<&'a mut Fields<I>> 
+    where
+        I: Ord
+    {
         if self.path.is_empty() {
             return Err(ChangeSetError::InvalidAction {
                 action: format!("retrieving fields"),
@@ -56,23 +57,19 @@ impl<I> FieldPath<I> {
         }
 
         let ty = schema
-            .content
             .iter_mut()
             .find(|s| s.get_type() == &self.root)
-            .ok_or_else(|| {
-                ChangeSetError::InvalidAction {
-                    action: format!("retrieving fields"),
-                    reason: format!("Failed to find type for {}", self),
-                }
+            .ok_or_else(|| ChangeSetError::InvalidAction {
+                action: format!("retrieving fields"),
+                reason: format!("Failed to find type for {}", self),
             })?;
-            
+
         if self.path.len() == 1 {
-            let fields = ty.get_fields_mut()
-                .ok_or_else(|| {
-                    ChangeSetError::InvalidAction {
-                        action: format!("retrieving fields"),
-                        reason: format!("Failed to find fields in type for {}", self),
-                    }
+            let fields = ty
+                .get_fields_mut()
+                .ok_or_else(|| ChangeSetError::InvalidAction {
+                    action: format!("retrieving fields"),
+                    reason: format!("Failed to find fields in type for {}", self),
                 })?;
 
             return Ok(fields);
@@ -83,20 +80,26 @@ impl<I> FieldPath<I> {
                 if self.path.len() != 2 {
                     return Err(ChangeSetError::InvalidAction {
                         action: format!("retrieving fields"),
-                        reason: format!("Failed to resolve {} to field in enum since it is to long", self),
-                    })
+                        reason: format!(
+                            "Failed to resolve {} to field in enum since it is to long",
+                            self
+                        ),
+                    });
                 }
                 let varient_name = &self.path[0];
-                let varient = e.get_varient_mut(varient_name)
-                    .ok_or_else(|| {
-                        ChangeSetError::InvalidAction {
-                            action: format!("retrieving fields"),
-                            reason: format!("Failed to find varient for {}", self),
-                        }
-                    })?;
-                
+                let varient = e.get_varient_mut(varient_name).ok_or_else(|| {
+                    ChangeSetError::InvalidAction {
+                        action: format!("retrieving fields"),
+                        reason: format!("Failed to find varient for {}", self),
+                    }
+                })?;
+
                 let varient_fields = match varient {
                     EnumVarient::Struct { fields, .. } => Ok(fields),
+                    EnumVarient::Opaque { .. } => Err(ChangeSetError::InvalidAction {
+                        action: format!("retrieving fields"),
+                        reason: format!("Cannot retrieve fields from opaque varient at {}", self),
+                    }),
                     EnumVarient::Unit { .. } => Err(ChangeSetError::InvalidAction {
                         action: format!("retrieving fields"),
                         reason: format!("Cannot retrieve fields from unit varient at {}", self),
@@ -111,7 +114,10 @@ impl<I> FieldPath<I> {
             | SchemaStm::Struct(_) => {
                 return Err(ChangeSetError::InvalidAction {
                     action: format!("retrieving fields"),
-                    reason: format!("Attempted to retrieve field {} from a to shallow type", self),
+                    reason: format!(
+                        "Attempted to retrieve field {} from a to shallow type",
+                        self
+                    ),
                 })
             }
         };
@@ -122,7 +128,6 @@ impl<I> FieldPath<I> {
             reason: format!("Failed to find filed at {}", self),
         })
         */
-        
     }
 
     /// Move from one input type to another
@@ -155,7 +160,7 @@ impl<I> ParserSerialize for FieldPath<I> {
     fn compose<W: std::fmt::Write>(
         &self,
         f: &mut W,
-        ctx: ComposeContext
+        ctx: ComposeContext,
     ) -> build_script_shared::error::ComposerResult<()> {
         let field_path_ctx = ctx.set_indents(0);
         self.root.compose(f, ctx)?;

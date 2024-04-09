@@ -1,8 +1,6 @@
 use std::fmt::Display;
 
-use build_script_lang::schema::FieldValue;
-use build_script_lang::schema::Schema;
-use build_script_lang::schema::Visibility;
+use build_script_lang::schema::{Schema, Visibility, FieldValue};
 use build_script_shared::compose_test;
 use build_script_shared::parsers::*;
 use build_script_shared::InputType;
@@ -20,10 +18,11 @@ use crate::FieldPath;
 #[derive(PartialEq, Eq, Debug, Clone, Hash, Dummy)]
 pub struct AddedField<I> {
     pub(crate) comments: Comments,
+    pub(crate) attributes: Attributes<I>,
     pub(crate) visibility: Visibility,
     pub(crate) field_path: FieldPath<I>,
     pub(crate) field_type: Types<I>,
-    pub(crate) order: u64
+    pub(crate) order: u64,
 }
 
 impl<I> AddedField<I> {
@@ -38,16 +37,17 @@ impl<I> AddedField<I> {
     {
         AddedField {
             comments: self.comments,
+            attributes: self.attributes.map(f),
             visibility: self.visibility,
             field_path: self.field_path.map(f),
             field_type: self.field_type.map(f),
-            order: self.order
+            order: self.order,
         }
     }
 
     pub fn apply(&self, schema: &mut Schema<I>) -> ChangeSetResult<()>
     where
-        I: Default + Clone + PartialEq,
+        I: Default + Clone + PartialEq + Ord,
     {
         let named_fields = self.field_path.retrieve_field(schema)?;
 
@@ -60,15 +60,14 @@ impl<I> AddedField<I> {
             });
         }
 
-        named_fields.insert_field(
-            FieldValue {
-                name: named_key.clone(),
-                visibility: self.visibility,
-                comments: self.comments.get_doc_comments(),
-                field_type: self.field_type.clone(),
-                order: self.order
-            },
-        );
+        named_fields.insert_field(FieldValue {
+            name: named_key.clone(),
+            attributes: self.attributes.clone(),
+            visibility: self.visibility,
+            comments: self.comments.get_doc_comments(),
+            field_type: self.field_type.clone(),
+            order: self.order,
+        });
 
         Ok(())
     }
@@ -76,10 +75,11 @@ impl<I> AddedField<I> {
 
 impl<I: InputType> ParserDeserialize<I> for AddedField<I> {
     fn parse(s: I) -> build_script_shared::error::ParserResult<I, Self> {
-        let (s, (comments, ((visibility, field_path), (field_type, order)))) = context(
+        let (s, (comments, attributes, ((visibility, field_path), (field_type, order)))) = context(
             "Parsing AddedField",
-            pair(
+            tuple((
                 Comments::parse,
+                Attributes::parse,
                 preceded(
                     ws(char('+')),
                     key_value(
@@ -88,17 +88,18 @@ impl<I: InputType> ParserDeserialize<I> for AddedField<I> {
                         pair(Types::parse, surrounded('(', u64, ')')),
                     ),
                 ),
-            ),
+            )),
         )(s)?;
 
         Ok((
             s,
             AddedField {
                 comments,
+                attributes,
                 visibility,
                 field_path,
                 field_type,
-                order
+                order,
             },
         ))
     }
@@ -108,12 +109,13 @@ impl<I> ParserSerialize for AddedField<I> {
     fn compose<W: std::fmt::Write>(
         &self,
         f: &mut W,
-        ctx: ComposeContext
+        ctx: ComposeContext,
     ) -> build_script_shared::error::ComposerResult<()> {
         let indents = ctx.create_indents();
         let new_ctx = ctx.set_indents(0);
 
         self.comments.compose(f, ctx)?;
+        self.attributes.compose(f, new_ctx)?;
         write!(f, "{indents}+ ")?;
         self.visibility.compose(f, new_ctx)?;
         self.field_path.compose(f, new_ctx)?;

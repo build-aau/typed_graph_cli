@@ -35,7 +35,7 @@ impl<I: InputType> ParserDeserialize<I> for SchemaStmType {
 }
 
 impl ParserSerialize for SchemaStmType {
-    fn compose<W: std::fmt::Write>(&self, f: &mut W, ctx: ComposeContext) -> ComposerResult<()> {
+    fn compose<W: std::fmt::Write>(&self, f: &mut W, _ctx: ComposeContext) -> ComposerResult<()> {
         match self {
             SchemaStmType::Node => write!(f, "node"),
             SchemaStmType::Edge => write!(f, "edge"),

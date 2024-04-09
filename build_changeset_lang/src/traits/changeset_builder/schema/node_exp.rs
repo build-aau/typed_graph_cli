@@ -40,8 +40,9 @@ where
         changes.extend(field_changes);
 
         let new_doc_comments = new_version.comments.get_doc_comments();
-        if &new_doc_comments != &self.comments.get_doc_comments() 
-            || new_version.attributes != self.attributes{
+        if &new_doc_comments != &self.comments.get_doc_comments()
+            || new_version.attributes != self.attributes
+        {
             changes.push(SingleChange::EditedType(EditedType {
                 comments: new_doc_comments,
                 attributes: new_version.attributes.clone(),

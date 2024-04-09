@@ -138,13 +138,13 @@ impl CodePreview {
             if l != r {
                 caret_pos = Some(i);
                 break;
-            } 
+            }
         }
-    
+
         if caret_pos.is_none() && left.len() != right.len() {
             caret_pos = Some(left.len().min(right.len()));
         }
-    
+
         let mut str_builder = String::new();
         if let Some(caret_offset) = caret_pos {
             let _ = writeln!(&mut str_builder, "Left:");

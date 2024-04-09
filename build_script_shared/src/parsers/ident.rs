@@ -103,7 +103,11 @@ impl<I> Ident<I> {
 }
 
 impl<I> ParserSerialize for Ident<I> {
-    fn compose<W: std::fmt::Write>(&self, f: &mut W, ctx: ComposeContext) -> crate::error::ComposerResult<()> {
+    fn compose<W: std::fmt::Write>(
+        &self,
+        f: &mut W,
+        ctx: ComposeContext,
+    ) -> crate::error::ComposerResult<()> {
         let indent = ctx.create_indents();
         write!(f, "{indent}{self}")?;
         Ok(())
@@ -115,6 +119,12 @@ impl<I> Deref for Ident<I> {
 
     fn deref(&self) -> &Self::Target {
         &self.name
+    }
+}
+
+impl<'a, I> PartialEq<&'a str> for Ident<I> {
+    fn eq(&self, other: &&'a str) -> bool {
+        &self.name == other
     }
 }
 
@@ -144,9 +154,9 @@ impl<I> PartialOrd for Ident<I> {
     }
 }
 
-impl<I> From<String> for Ident<I> 
+impl<I> From<String> for Ident<I>
 where
-    I: Default
+    I: Default,
 {
     fn from(value: String) -> Self {
         Ident::new_alone(value)

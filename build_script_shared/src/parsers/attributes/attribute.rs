@@ -18,6 +18,7 @@ use std::hash::Hash;
 pub enum Attribute<I> {
     KeyValue(AttributeKeyValue<I>),
     Function(AttributeFunction<I>),
+    FunctionKeyValue(AttributeFunctionKeyValue<I>)
 }
 
 impl<I> Attribute<I> {
@@ -29,6 +30,7 @@ impl<I> Attribute<I> {
         match self {
             Attribute::KeyValue(kv) => Attribute::KeyValue(kv.map(f)),
             Attribute::Function(value) => Attribute::Function(value.map(f)),
+            Attribute::FunctionKeyValue(kv) => Attribute::FunctionKeyValue(kv.map(f))
         }
     }
 }
@@ -36,31 +38,32 @@ impl<I> Attribute<I> {
 impl<I: InputType> ParserDeserialize<I> for Attribute<I> {
     fn parse(s: I) -> ParserResult<I, Self> {
         context(
-            "Partin Attribute",
+            "Parsing Attribute",
             preceded(
                 char('@'),
-                surrounded(
-                    '(',
-                    alt((
-                        map(AttributeKeyValue::parse, Attribute::KeyValue),
-                        map(AttributeFunction::parse, Attribute::Function),
-                    )),
-                    ')',
-                ),
+                alt((
+                    map(AttributeKeyValue::parse, Attribute::KeyValue),
+                    map(AttributeFunctionKeyValue::parse, Attribute::FunctionKeyValue),
+                    map(AttributeFunction::parse, Attribute::Function),
+                )),
             ),
         )(s)
     }
 }
 
 impl<I> ParserSerialize for Attribute<I> {
-    fn compose<W: std::fmt::Write>(&self, f: &mut W, ctx: ComposeContext) -> crate::error::ComposerResult<()> {
+    fn compose<W: std::fmt::Write>(
+        &self,
+        f: &mut W,
+        ctx: ComposeContext,
+    ) -> crate::error::ComposerResult<()> {
         let indents = ctx.create_indents();
-        write!(f, "{indents}@(")?;
+        write!(f, "{indents}@")?;
         match self {
             Attribute::Function(value) => value.compose(f, ctx)?,
+            Attribute::FunctionKeyValue(value) => value.compose(f, ctx)?,
             Attribute::KeyValue(value) => value.compose(f, ctx)?,
         }
-        write!(f, ")")?;
         Ok(())
     }
 }
@@ -70,24 +73,27 @@ impl<I> Marked<I> for Attribute<I> {
         match self {
             Attribute::Function(value) => value.marker(),
             Attribute::KeyValue(value) => value.marker(),
+            Attribute::FunctionKeyValue(value) => value.marker(),
         }
     }
 }
 
 impl<I: Dummy<Faker>> Dummy<Faker> for Attribute<I> {
     fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
-        match rng.gen_range(0..=1) {
+        match rng.gen_range(0..=2) {
             0 => Attribute::KeyValue(AttributeKeyValue::dummy_with_rng(config, rng)),
+            1 => Attribute::FunctionKeyValue(AttributeFunctionKeyValue::dummy_with_rng(config, rng)),
             _ => Attribute::Function(AttributeFunction::dummy_with_rng(config, rng)),
         }
     }
 }
 
-pub struct AllowedAttributes(pub AllowedKeyValueAttribute, pub AllowedFunctionAttribute);
+pub struct AllowedAttributes(pub AllowedKeyValueAttribute, pub AllowedFunctionAttribute, pub AllowedFunctionKeyValueAttribute);
 impl<I: Dummy<Faker>> Dummy<AllowedAttributes> for Attribute<I> {
     fn dummy_with_rng<R: Rng + ?Sized>(config: &AllowedAttributes, rng: &mut R) -> Self {
-        match rng.gen_range(0..2) {
+        match rng.gen_range(0..=2) {
             0 => Attribute::KeyValue(AttributeKeyValue::dummy_with_rng(&config.0, rng)),
+            1 => Attribute::FunctionKeyValue(AttributeFunctionKeyValue::dummy_with_rng(&config.2, rng)),
             _ => Attribute::Function(AttributeFunction::dummy_with_rng(&config.1, rng)),
         }
     }
@@ -102,6 +108,12 @@ impl<I: Dummy<Faker>> Dummy<AllowedKeyValueAttribute> for Attribute<I> {
 impl<I: Dummy<Faker>> Dummy<AllowedFunctionAttribute> for Attribute<I> {
     fn dummy_with_rng<R: Rng + ?Sized>(config: &AllowedFunctionAttribute, rng: &mut R) -> Self {
         Attribute::Function(AttributeFunction::dummy_with_rng(config, rng))
+    }
+}
+
+impl<I: Dummy<Faker>> Dummy<AllowedFunctionKeyValueAttribute> for Attribute<I> {
+    fn dummy_with_rng<R: Rng + ?Sized>(config: &AllowedFunctionKeyValueAttribute, rng: &mut R) -> Self {
+        Attribute::FunctionKeyValue(AttributeFunctionKeyValue::dummy_with_rng(config, rng))
     }
 }
 

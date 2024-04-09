@@ -1,5 +1,3 @@
-use std::ops::Deref;
-
 use build_script_lang::schema::Fields;
 
 use crate::schema::*;
@@ -24,10 +22,11 @@ where
             .map(|field_value| {
                 SingleChange::AddedField(AddedField {
                     comments: field_value.comments.get_doc_comments(),
+                    attributes: field_value.attributes.clone(),
                     visibility: field_value.visibility,
                     field_path: path.push(field_value.name.clone()),
                     field_type: field_value.field_type.clone(),
-                    order: field_value.order
+                    order: field_value.order,
                 })
             })
             .collect();
@@ -53,6 +52,7 @@ where
                 SingleChange::EditedFieldType(EditedField {
                     field_path: path.push(old_type.name.clone()),
                     comments: new_type.comments.get_doc_comments(),
+                    attributes: new_type.attributes.clone(),
                     old_visibility: old_type.visibility,
                     new_visibility: new_type.visibility,
                     old_type: old_type.field_type.clone(),

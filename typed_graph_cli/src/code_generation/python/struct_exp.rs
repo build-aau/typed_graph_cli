@@ -1,7 +1,9 @@
 use build_script_lang::schema::StructExp;
 use std::fmt::Write;
 
-use crate::{targets, CodeGenerator, GeneratedCode, ToPythonType, ToSnakeCase};
+use crate::{targets, CodeGenerator, GeneratedCode, ToSnakeCase};
+
+use super::{write_comments, write_fields};
 
 impl<I> CodeGenerator<targets::Python> for StructExp<I> {
     fn get_filename(&self) -> String {
@@ -20,7 +22,13 @@ impl<I> CodeGenerator<targets::Python> for StructExp<I> {
         let mut s = String::new();
 
         writeln!(s, "from typed_graph import RustModel")?;
-        writeln!(s, "from typing import Optional, List, Dict, TypeVar, Generic")?;
+        writeln!(
+            s,
+            "from typing import Optional, List, Dict, TypeVar, Generic, ClassVar"
+        )?;
+        writeln!(s, "from pydantic import Field, AliasChoices")?;
+        writeln!(s, "from ..structs import *")?;
+        writeln!(s, "from ..types import *")?;
         writeln!(s, "from ..imports import *")?;
         writeln!(s, "from ...imports import *")?;
         writeln!(s)?;
@@ -29,7 +37,9 @@ impl<I> CodeGenerator<targets::Python> for StructExp<I> {
             let letter = &generic.letter;
             writeln!(s, "{letter} = TypeVar(\"{letter}\")")?;
         }
-        let generic_refs = self.generics.generics
+        let generic_refs = self
+            .generics
+            .generics
             .iter()
             .map(|gen| format!("{}", gen.letter))
             .collect::<Vec<_>>()
@@ -40,27 +50,23 @@ impl<I> CodeGenerator<targets::Python> for StructExp<I> {
         if generic_refs.is_empty() {
             writeln!(s, "class {struct_name}(RustModel):")?;
         } else {
-            writeln!(s, "class {struct_name}(RustModel, Generic[{generic_refs}]):")?;
+            writeln!(
+                s,
+                "class {struct_name}(RustModel, Generic[{generic_refs}]):"
+            )?;
         }
-        if self.comments.has_doc() {
-            writeln!(s, "     \"\"\"")?;
-            for comment in self.comments.iter_doc() {
-                writeln!(s, "     {comment}")?;
-            }
-            writeln!(s, "     \"\"\"")?;
+
+        write_comments(&mut s, &self.comments)?;
+
+        if self.attributes.is_untagged() {
+            writeln!(s, "    tagging: ClassVar[bool] = False")?;
         }
-        for field_value in self.fields.iter() {
-            let field_name = &field_value.name;
-            let field_type = field_value.field_type.to_python_type();
-            writeln!(s, "     {field_name}: {field_type}")?;
-            if field_value.comments.has_doc() {
-                writeln!(s, "     \"\"\"")?;
-                for comment in field_value.comments.iter_doc() {
-                    writeln!(s, "     {comment}")?;
-                }
-                writeln!(s, "     \"\"\"")?;
-            }
+
+        if self.fields.is_empty() {
+            write!(s, "     pass")?;
         }
+
+        write_fields(&mut s, &self.fields)?;
 
         let mut new_files = GeneratedCode::new();
         new_files.add_content(node_path, s);

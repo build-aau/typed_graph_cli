@@ -54,7 +54,7 @@ where
             changes.push(SingleChange::EditedGenerics(EditedGenerics {
                 type_name: self.name.clone(),
                 old_generics: self.generics.clone(),
-                new_generics: new_version.generics.clone()
+                new_generics: new_version.generics.clone(),
             }));
         }
 

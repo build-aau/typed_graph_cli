@@ -36,7 +36,7 @@ pub enum SingleChange<I> {
     EditedVariantsOrder(EditedVariantsOrder<I>),
     EditedEndpoint(EditedEndpoint<I>),
     EditedVariant(EditedVariant<I>),
-    EditedGenerics(EditedGenerics<I>)
+    EditedGenerics(EditedGenerics<I>),
 }
 
 impl<I> SingleChange<I> {
@@ -66,7 +66,7 @@ impl<I> SingleChange<I> {
     /// Apply the change to a schema
     pub fn apply(&self, schema: &mut Schema<I>) -> ChangeSetResult<()>
     where
-        I: Default + Clone + PartialEq,
+        I: Default + Clone + PartialEq + Ord,
     {
         match self {
             SingleChange::AddedType(s) => s.apply(schema),
@@ -86,13 +86,13 @@ impl<I> SingleChange<I> {
         }
     }
 
-    pub fn check_convertions(&self) -> ParserSlimResult<I, ()> 
+    pub fn check_convertion_res(&self) -> ParserSlimResult<I, ()>
     where
-        I: Clone
+        I: Clone,
     {
         match self {
-            SingleChange::EditedFieldType(t) => t.check_convertions(),
-            _ => Ok(())
+            SingleChange::EditedFieldType(t) => t.check_convertion_res(),
+            _ => Ok(()),
         }
     }
 }
@@ -100,34 +100,33 @@ impl<I> SingleChange<I> {
 impl<I: InputType> ParserDeserialize<I> for SingleChange<I> {
     fn parse(s: I) -> ParserResult<I, Self> {
         let (s, change) = context(
-                "Parsing SingleChange",
+            "Parsing SingleChange",
+            terminated(
                 alt((
                     // Since most of them are very similar the order is super important
                     map(AddedVarient::parse, SingleChange::AddedVarient),
                     map(AddedField::parse, SingleChange::AddedField),
                     map(AddedType::parse, SingleChange::AddedType),
                     map(AddedEndpoint::parse, SingleChange::AddedEndpoint),
-                    
                     map(RemovedField::parse, SingleChange::RemovedField),
                     map(RemovedVarient::parse, SingleChange::RemovedVarient),
                     map(RemovedEndpoint::parse, SingleChange::RemovedEndpoint),
                     map(RemovedType::parse, SingleChange::RemovedType),
-                    
                     map(EditedField::parse, SingleChange::EditedFieldType),
-                    map(EditedVariantsOrder::parse, SingleChange::EditedVariantsOrder),
+                    map(
+                        EditedVariantsOrder::parse,
+                        SingleChange::EditedVariantsOrder,
+                    ),
                     map(EditedGenerics::parse, SingleChange::EditedGenerics),
                     map(EditedVariant::parse, SingleChange::EditedVariant),
                     map(EditedEndpoint::parse, SingleChange::EditedEndpoint),
                     map(EditedType::parse, SingleChange::EditedType),
                 )),
-            )(s)?;
-            
-        let (s, _) = context(
-                "Parsing SingleChange",
-                cut(char(';'))
-            )(s)?;
-        
-        change.check_convertions()?;
+                cut(char(';')),
+            ),
+        )(s)?;
+
+        change.check_convertion_res()?;
 
         Ok((s, change))
     }
@@ -137,7 +136,7 @@ impl<I> ParserSerialize for SingleChange<I> {
     fn compose<W: std::fmt::Write>(
         &self,
         f: &mut W,
-        ctx: ComposeContext
+        ctx: ComposeContext,
     ) -> build_script_shared::error::ComposerResult<()> {
         match self {
             SingleChange::AddedVarient(s) => s.compose(f, ctx),

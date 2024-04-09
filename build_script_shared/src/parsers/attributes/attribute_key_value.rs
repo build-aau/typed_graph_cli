@@ -48,7 +48,11 @@ impl<I: InputType> ParserDeserialize<I> for AttributeKeyValue<I> {
 }
 
 impl<I> ParserSerialize for AttributeKeyValue<I> {
-    fn compose<W: std::fmt::Write>(&self, f: &mut W, ctx: ComposeContext) -> crate::error::ComposerResult<()> {
+    fn compose<W: std::fmt::Write>(
+        &self,
+        f: &mut W,
+        _ctx: ComposeContext,
+    ) -> crate::error::ComposerResult<()> {
         write!(f, "{} = {}", self.key, self.value)?;
         Ok(())
     }

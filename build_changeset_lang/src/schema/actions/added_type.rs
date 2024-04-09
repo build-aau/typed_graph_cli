@@ -58,6 +58,7 @@ impl<I> AddedType<I> {
             )),
             AddedTypeData::Struct => SchemaStm::Struct(StructExp::new(
                 self.comments.get_doc_comments(),
+                self.attributes.clone(),
                 self.type_name.clone(),
                 Default::default(),
                 Fields::default(),
@@ -73,6 +74,7 @@ impl<I> AddedType<I> {
             )),
             AddedTypeData::Enum => SchemaStm::Enum(EnumExp::new(
                 self.comments.get_doc_comments(),
+                self.attributes.clone(),
                 self.type_name.clone(),
                 Default::default(),
                 Default::default(),
@@ -85,7 +87,7 @@ impl<I> AddedType<I> {
             )),
         };
 
-        schema.content.push(new_content);
+        schema.push(new_content);
 
         Ok(())
     }
@@ -118,7 +120,7 @@ impl<I> ParserSerialize for AddedType<I> {
     fn compose<W: std::fmt::Write>(
         &self,
         f: &mut W,
-        ctx: ComposeContext
+        ctx: ComposeContext,
     ) -> build_script_shared::error::ComposerResult<()> {
         let indents = ctx.create_indents();
         let new_ctx = ctx.set_indents(0);

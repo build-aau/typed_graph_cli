@@ -19,6 +19,6 @@ impl ProjectSettings {
     pub fn get_project_path(&self) -> PathBuf {
         self.project
             .clone()
-            .unwrap_or_else(|| PathBuf::from("project/"))
+            .unwrap_or_else(|| PathBuf::from("project"))
     }
 }

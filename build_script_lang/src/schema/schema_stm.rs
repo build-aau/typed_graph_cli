@@ -1,6 +1,3 @@
-use std::collections::HashMap;
-use std::collections::HashSet;
-
 use super::*;
 use build_script_shared::error::*;
 use build_script_shared::parsers::*;
@@ -14,6 +11,7 @@ use nom::error::context;
 use nom::sequence::*;
 use serde::Deserialize;
 use serde::Serialize;
+use std::collections::HashSet;
 
 #[derive(PartialEq, Eq, Debug, Hash, Clone, PartialOrd, Ord, Dummy, Serialize, Deserialize)]
 #[serde(bound = "I: Default + Clone")]
@@ -62,6 +60,7 @@ impl<I> SchemaStm<I> {
             SchemaStm::Node(n) => Some(&mut n.fields),
             SchemaStm::Edge(n) => Some(&mut n.fields),
             SchemaStm::Struct(n) => Some(&mut n.fields),
+            // We do not know which fields to choose so we choose none
             SchemaStm::Enum(_) => None,
             SchemaStm::Import(_) => None,
         }
@@ -79,10 +78,10 @@ impl<I> SchemaStm<I> {
 
     pub fn get_attributes(&self) -> Option<&Attributes<I>> {
         match self {
-            SchemaStm::Node(_) => None,
+            SchemaStm::Node(n) => Some(&n.attributes),
             SchemaStm::Edge(n) => Some(&n.attributes),
-            SchemaStm::Struct(_) => None,
-            SchemaStm::Enum(_) => None,
+            SchemaStm::Struct(s) => Some(&s.attributes),
+            SchemaStm::Enum(e) => Some(&e.attributes),
             SchemaStm::Import(_) => None,
         }
     }
@@ -126,7 +125,7 @@ impl<I: InputType> ParserDeserialize<I> for SchemaStm<I> {
                     fail,
                 )),
                 cut(char(';')),
-            )
+            ),
         )(s)
     }
 }

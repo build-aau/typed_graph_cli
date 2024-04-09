@@ -1,6 +1,7 @@
 use crate::code_preview::CodePreview;
 use crate::input_marker::InputMarker;
 use nom::InputLength;
+use std::collections::HashMap;
 use std::fmt::Display;
 use thiserror::Error;
 
@@ -8,7 +9,7 @@ use super::{ParserError, ParserErrorKind};
 
 #[derive(Error, Debug)]
 pub struct OwnedParserError {
-    pub data: String,
+    pub data: HashMap<String, String>,
     pub errors: Vec<OwnedError>,
 }
 
@@ -25,14 +26,23 @@ where
     I: ToString,
 {
     fn from(e: ParserError<InputMarker<I>>) -> Self {
+        // Find the data of the most complete source file
+        let mut data: HashMap<String, String> = HashMap::new();
+        for (marker, _) in &e.errors {
+            let source_file = marker.source_file.clone();
+            let source_data = marker.leak_source().to_string();
+            if let Some(current_data) = data.get_mut(&source_file) {
+                if source_data.len() > current_data.len() {
+                    *current_data = source_data;
+                }
+            } else {
+                data.insert(source_file, source_data);
+            }
+        }
+
         OwnedParserError {
             // Find the error with the longest version of the original data
-            data: e
-                .errors
-                .iter()
-                .last()
-                .map(|(input, _)| input.leak_source().to_string())
-                .unwrap_or_default(),
+            data,
             errors: e
                 .errors
                 .iter()
@@ -70,22 +80,25 @@ impl Display for OwnedParserError {
                 e.source.as_str()
             };
 
-            let preview = if self.data.is_empty() {
-                write!(f, "{}(0:0): ", source)?;
-                None
-            } else {
+            let preview = if let Some(data) = self.data.get(&e.source) {
                 let caret_len = if e.offset + e.len >= self.data.len() {
                     1
                 } else {
                     e.len
                 };
-                let preview = CodePreview::new(&self.data, e.offset, caret_len, 2, 2);
+
+                let preview = CodePreview::new(data, e.offset, caret_len, 2, 2);
                 write!(
                     f,
-                    "{}({}:{}): ",
-                    source, preview.caret_line_number(), preview.caret_offset()
+                    "{}:{}:{}: ",
+                    source,
+                    preview.caret_line_number() + 1,
+                    preview.caret_offset() + 1
                 )?;
                 Some(preview)
+            } else {
+                write!(f, "{}:1:1: ", source)?;
+                None
             };
 
             writeln!(f, "{}", &e.kind)?;

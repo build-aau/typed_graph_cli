@@ -14,16 +14,19 @@ use serde::Serialize;
 use std::collections::BTreeMap;
 use std::collections::HashSet;
 
-const ALLOWED_ATTRIBUTES: &[&str] = &["rename_inc", "rename_out"];
+const RENAME_INC: &'static str = "rename_inc";
+const RENAME_OUT: &'static str = "rename_out";
+
+const ALLOWED_KEY_ATTRIBUTES: &[&str] = &[RENAME_INC, RENAME_OUT];
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Dummy, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(bound = "I: Default + Clone")]
 pub struct EndPoint<I> {
     pub source: Ident<I>,
     pub target: Ident<I>,
-    #[serde(flatten)]
-    pub quantity: Quantifier<I>,
-    #[dummy(faker = "AllowedKeyValueAttribute(ALLOWED_ATTRIBUTES)")]
+    pub incoming_quantity: Quantifier<I>,
+    pub outgoing_quantity: Quantifier<I>,
+    #[dummy(faker = "AllowedKeyValueAttribute(ALLOWED_KEY_ATTRIBUTES)")]
     #[serde(flatten)]
     pub attributes: Attributes<I>,
     #[serde(skip)]
@@ -32,14 +35,16 @@ pub struct EndPoint<I> {
 
 impl<I> EndPoint<I> {
     pub fn new(
-        quantity: Quantifier<I>,
+        incoming_quantity: Quantifier<I>,
+        outgoing_quantity: Quantifier<I>,
         attributes: Attributes<I>,
         source: Ident<I>,
         target: Ident<I>,
         marker: Mark<I>,
     ) -> EndPoint<I> {
         EndPoint {
-            quantity,
+            incoming_quantity,
+            outgoing_quantity,
             attributes,
             source,
             target,
@@ -53,7 +58,8 @@ impl<I> EndPoint<I> {
         F: FnMut(I) -> O + Copy,
     {
         EndPoint {
-            quantity: self.quantity.map(f),
+            incoming_quantity: self.incoming_quantity.map(f),
+            outgoing_quantity: self.outgoing_quantity.map(f),
             source: self.source.map(f),
             target: self.target.map(f),
             attributes: self.attributes.map(f),
@@ -65,27 +71,36 @@ impl<I> EndPoint<I> {
     where
         I: Clone,
     {
-        self.attributes.check_key_value(ALLOWED_ATTRIBUTES)?;
+        self.attributes.check_attributes(
+            ALLOWED_KEY_ATTRIBUTES, 
+            &[], 
+            &[]
+        )?;
 
         Ok(())
     }
 
-    pub fn check_types(
-        &self,
-        node_reference_types: &HashSet<Ident<I>>,
-    ) -> ParserSlimResult<I, ()>
+    pub fn get_rename_inc(&self) -> Option<&str> {
+        self.attributes.get_key_value(RENAME_INC).map(|kv| kv.value.as_ref())
+    }
+
+    pub fn get_rename_out(&self) -> Option<&str> {
+        self.attributes.get_key_value(RENAME_OUT).map(|kv| kv.value.as_ref())
+    }
+
+    pub fn check_types(&self, node_reference_types: &HashSet<Ident<I>>) -> ParserSlimResult<I, ()>
     where
         I: Clone,
     {
         if !node_reference_types.contains(&self.source) {
             return Err(Err::Failure(ParserError::new_at(
-                self,
+                self.source.marker(),
                 ParserErrorKind::UnknownReference(self.source.to_string()),
             )));
         }
         if !node_reference_types.contains(&self.target) {
             return Err(Err::Failure(ParserError::new_at(
-                self,
+                self.target.marker(),
                 ParserErrorKind::UnknownReference(self.target.to_string()),
             )));
         }
@@ -96,21 +111,22 @@ impl<I> EndPoint<I> {
 
 impl<I: InputType> ParserDeserialize<I> for EndPoint<I> {
     fn parse(s: I) -> ParserResult<I, Self> {
-        let (s, (attributes, ((source, (quantity, target)), marker))) = pair(
+        let (s, (attributes, (((source, outgoing_quantity), (target, incoming_quantity)), marker))) = pair(
             Attributes::parse,
             marked(key_value(
-                Ident::ident,
+                pair(Ident::ident, Quantifier::parse),
                 ws(pair(char('='), char('>'))),
-                pair(Quantifier::parse, Ident::ident),
+                pair(Ident::ident, Quantifier::parse),
             )),
         )(s)?;
 
         Ok((
             s,
             EndPoint {
-                quantity,
                 attributes,
                 source,
+                outgoing_quantity,
+                incoming_quantity,
                 target,
                 marker,
             },
@@ -124,10 +140,10 @@ impl<I> ParserSerialize for EndPoint<I> {
 
         self.attributes.compose(f, ctx)?;
         self.source.compose(f, ctx)?;
-        write!(f, " =>")?;
-        self.quantity.compose(f, endpoint_ctx)?;
-        write!(f, " ")?;
+        self.outgoing_quantity.compose(f, endpoint_ctx)?;
+        write!(f, " => ")?;
         self.target.compose(f, endpoint_ctx)?;
+        self.incoming_quantity.compose(f, endpoint_ctx)?;
         Ok(())
     }
 }
@@ -135,6 +151,7 @@ impl<I> ParserSerialize for EndPoint<I> {
 impl<I: Default> Default for EndPoint<I> {
     fn default() -> Self {
         EndPoint::new(
+            Default::default(),
             Default::default(),
             Default::default(),
             Default::default(),

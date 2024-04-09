@@ -1,9 +1,9 @@
-use crate::{ChangeSetResult, FieldPath};
 use super::SingleChange;
+use crate::{ChangeSetResult, FieldPath};
 use build_script_lang::schema::Schema;
-use build_script_shared::{compose_test, InputMarkerRef, InputType};
-use build_script_shared::error::{OwnedParserError, ParserResult, ParserSlimResult};
+use build_script_shared::error::{ParserResult, ParserSlimResult};
 use build_script_shared::parsers::*;
+use build_script_shared::{compose_test, InputMarkerRef, InputType};
 use fake::Dummy;
 use nom::bytes::complete::tag;
 use nom::character::complete::*;
@@ -80,22 +80,24 @@ impl<I> ChangeSet<I> {
                     if f.type_name == path.root {
                         changes.push(change)
                     }
-                },
+                }
                 SingleChange::EditedType(f) => {
                     if f.type_name == path.root {
                         changes.push(change)
                     }
-                },
+                }
                 SingleChange::AddedEndpoint(f) => {
                     if f.type_name == path.root {
                         changes.push(change)
                     }
-                },
+                }
                 SingleChange::AddedField(f) => {
-                    if f.field_path == path || path.path.is_empty() && f.field_path.root == path.root {
+                    if f.field_path == path
+                        || path.path.is_empty() && f.field_path.root == path.root
+                    {
                         changes.push(change)
                     }
-                },
+                }
                 SingleChange::AddedVarient(f) => {
                     let is_changed = f.type_name == path.root
                         && path
@@ -107,47 +109,51 @@ impl<I> ChangeSet<I> {
                     if is_changed {
                         changes.push(change)
                     }
-                },
+                }
                 SingleChange::EditedFieldType(f) => {
-                    if f.field_path == path || path.path.is_empty() && f.field_path.root == path.root {
+                    if f.field_path == path
+                        || path.path.is_empty() && f.field_path.root == path.root
+                    {
                         changes.push(change)
                     }
-                },
+                }
                 SingleChange::EditedGenerics(f) => {
                     if f.type_name == path.root {
                         changes.push(change);
                     }
-                },
+                }
                 SingleChange::EditedVariantsOrder(f) => {
                     if f.type_name == path.root {
                         changes.push(change);
                     }
-                },
+                }
                 SingleChange::EditedEndpoint(f) => {
                     if path.path.len() == 0 && f.type_name == path.root {
                         changes.push(change)
                     }
-                },
+                }
                 SingleChange::EditedVariant(f) => {
                     if path.path.len() == 0 && f.type_name == path.root {
                         changes.push(change)
                     }
-                },
+                }
                 SingleChange::RemovedField(f) => {
-                    if f.field_path == path || path.path.is_empty() && f.field_path.root == path.root {
+                    if f.field_path == path
+                        || path.path.is_empty() && f.field_path.root == path.root
+                    {
                         changes.push(change)
                     }
-                },
+                }
                 SingleChange::RemovedType(f) => {
                     if f.type_name == path.root {
                         changes.push(change)
                     }
-                },
+                }
                 SingleChange::RemovedEndpoint(f) => {
                     if f.type_name == path.root {
                         changes.push(change)
                     }
-                },
+                }
                 SingleChange::RemovedVarient(f) => {
                     let is_changed = f.type_name == path.root
                         && path
@@ -159,7 +165,7 @@ impl<I> ChangeSet<I> {
                     if is_changed {
                         changes.push(change)
                     }
-                },
+                }
             };
         }
 
@@ -205,12 +211,12 @@ impl<I> ChangeSet<I> {
         Ok(schema)
     }
 
-    pub fn check_convertions(&self) -> ParserSlimResult<I, ()> 
+    pub fn check_convertion_res(&self) -> ParserSlimResult<I, ()>
     where
-        I: Clone
+        I: Clone,
     {
         for change in &self.changes {
-            change.check_convertions()?;
+            change.check_convertion_res()?;
         }
 
         Ok(())
@@ -238,10 +244,13 @@ impl<I: InputType> ParserDeserialize<I> for ChangeSet<I> {
             ),
         )(s)?;
 
-        let (s, changes) = context("Parsing ChangeSet changes", terminated(
-            ws(many0(ws(SingleChange::parse))),
-            context("Expected change", eof),
-        ))(s)?;
+        let (s, changes) = context(
+            "Parsing ChangeSet changes",
+            terminated(
+                ws(many0(ws(SingleChange::parse))),
+                context("Expected change", eof),
+            ),
+        )(s)?;
 
         let changeset = ChangeSet {
             old_version,
@@ -252,12 +261,9 @@ impl<I: InputType> ParserDeserialize<I> for ChangeSet<I> {
             changes,
         };
 
-        changeset.check_convertions()?;
+        changeset.check_convertion_res()?;
 
-        Ok((
-            s,
-            changeset,
-        ))
+        Ok((s, changeset))
     }
 }
 
@@ -265,7 +271,7 @@ impl<I> ParserSerialize for ChangeSet<I> {
     fn compose<W: std::fmt::Write>(
         &self,
         f: &mut W,
-        ctx: ComposeContext
+        ctx: ComposeContext,
     ) -> build_script_shared::error::ComposerResult<()> {
         let indents = ctx.create_indents();
         let changset_ctx = ctx.set_indents(0);
@@ -310,84 +316,80 @@ compose_test! {changeset_compose, ChangeSet<I>}
 
 #[test]
 fn schema_changeset_test() {
-    use build_script_shared::CodePreview;
-    use fake::{Faker, Fake};
-    use build_script_shared::tests::display_diff;
     use crate::ChangeSetBuilder;
+    use build_script_shared::tests::display_diff;
+    use build_script_shared::CodePreview;
+    use fake::{Fake, Faker};
 
     for _ in 0..build_script_shared::tests::TEST_ITERATION_COUNT {
-
         let old_schema: Schema<String> = Faker.fake();
         let new_schema: Schema<String> = Faker.fake();
-    
+
         let changes = old_schema.build_changeset(&new_schema).unwrap();
-    
+
         println!("Found changes:");
         let change_showcase = changes.serialize_to_string().unwrap();
         println!("{}", CodePreview::showcase(change_showcase.clone()));
-    
+
         let mut updated_schema = old_schema.clone();
         updated_schema.version = changes.new_version.clone();
-    
+
         for change in &changes.changes {
             let res = change.apply(&mut updated_schema);
             if res.is_err() {
                 println!();
                 println!("Old schema:");
-                println!("{}", CodePreview::showcase(old_schema.serialize_to_string().unwrap()));
+                println!(
+                    "{}",
+                    CodePreview::showcase(old_schema.serialize_to_string().unwrap())
+                );
                 println!();
-    
+
                 println!("Failed during execution of:");
-    
+
                 let of_interest = change.serialize_to_string().unwrap();
                 let caret_len = of_interest.len();
                 let caret_offset = change_showcase.find(&of_interest).unwrap_or_default();
-    
-                let preview = CodePreview::new(
-                    &change_showcase, 
-                    caret_offset, 
-                    caret_len, 
-                    4, 
-                    4
-                );
+
+                let preview = CodePreview::new(&change_showcase, caret_offset, caret_len, 4, 4);
                 println!("{preview}");
                 println!();
                 res.unwrap();
             }
         }
-    
+
         let mut hasher = DefaultHasher::new();
         new_schema.hash(&mut hasher);
         let new_hash = hasher.finish();
-    
+
         let mut hasher = DefaultHasher::new();
         updated_schema.hash(&mut hasher);
         let updated_hash = hasher.finish();
-        
+
         if &updated_schema != &new_schema {
             let mut dbg_updated_schema = updated_schema.clone();
             let mut dbg_new_schema = new_schema.clone();
-    
+
             // Each shcema file can have their own set of comments
             // So we remove all non doc comments
             dbg_updated_schema.strip_comments();
             dbg_new_schema.strip_comments();
-    
+
             let content_iter = dbg_updated_schema.iter().zip(dbg_new_schema.iter());
             println!("Running diff on content:");
             for (updated_stm, new_stm) in content_iter {
                 if updated_stm != new_stm {
                     display_diff(new_stm, updated_stm)
                 }
-            } 
-    
+            }
+
             println!();
             println!("Running diff on schema:");
             display_diff(&dbg_new_schema, &dbg_updated_schema);
         }
-    
+
         assert_eq!(updated_schema, new_schema);
-    
+
         if updated_hash != new_hash {
             let content_iter = updated_schema.iter().zip(new_schema.iter());
             println!("Running diff on content:");
@@ -395,17 +397,23 @@ fn schema_changeset_test() {
                 let mut hasher = DefaultHasher::new();
                 new_stm.hash(&mut hasher);
                 let new_hash = hasher.finish();
-    
+
                 let mut hasher = DefaultHasher::new();
                 updated_stm.hash(&mut hasher);
                 let updated_hash = hasher.finish();
-    
+
                 if updated_hash != new_hash {
-                    println!("Hash mismatch {} -> {} for {} {}", new_hash, updated_hash, updated_stm.get_schema_type(), updated_stm.get_type());
+                    println!(
+                        "Hash mismatch {} -> {} for {} {}",
+                        new_hash,
+                        updated_hash,
+                        updated_stm.get_schema_type(),
+                        updated_stm.get_type()
+                    );
                 }
-            } 
+            }
         }
-    
+
         assert_eq!(updated_hash, new_hash);
     }
 }

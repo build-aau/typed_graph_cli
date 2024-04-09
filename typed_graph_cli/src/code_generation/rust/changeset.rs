@@ -8,9 +8,9 @@ use build_script_lang::schema::*;
 
 use crate::{targets, CodeGenerator, GenResult, GeneratedCode, ToSnakeCase};
 
-impl<I> CodeGenerator<targets::Rust> for (&ChangeSet<I>, &Schema<I>, &Schema<I>) 
+impl<I> CodeGenerator<targets::Rust> for (&ChangeSet<I>, &Schema<I>, &Schema<I>)
 where
-    I: Ord + Debug + Clone + PartialEq + Default
+    I: Ord + Debug + Clone + PartialEq + Default,
 {
     fn get_filename(&self) -> String {
         CodeGenerator::<targets::Rust>::get_filename(self.1)
@@ -45,9 +45,9 @@ where
 
         let mut new_files = GeneratedCode::new();
 
-        let old_types: HashSet<_> = old_schema.content.iter().map(SchemaStm::get_type).collect();
+        let old_types: HashSet<_> = old_schema.iter().map(SchemaStm::get_type).collect();
 
-        for stm in &new_schema.content {
+        for stm in new_schema.iter() {
             // Check if the type is new
             if !old_types.contains(stm.get_type()) {
                 continue;

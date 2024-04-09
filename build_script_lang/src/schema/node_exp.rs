@@ -26,10 +26,17 @@ use serde::Serialize;
 
 const RENAME_INC: &str = "rename_inc";
 const RENAME_OUT: &str = "rename_out";
+const DERIVE: &str = "derive";
 
-const ALLOWED_ATTRIBUTES: &[(&str, usize)] = &[(RENAME_INC, 2), (RENAME_OUT, 2)];
+const ALLOWED_ATTRIBUTES: &[(&str, Option<usize>)] = &[
+    (RENAME_INC, Some(2)), 
+    (RENAME_OUT, Some(2)), 
+    (DERIVE, None),
+];
 
-#[derive(PartialEq, Eq, Debug, Hash, Clone, Default, PartialOrd, Ord, Dummy, Serialize, Deserialize)]
+#[derive(
+    PartialEq, Eq, Debug, Hash, Clone, Default, PartialOrd, Ord, Dummy, Serialize, Deserialize,
+)]
 #[serde(bound = "I: Default + Clone")]
 pub struct NodeExp<I> {
     pub name: Ident<I>,
@@ -84,11 +91,22 @@ impl<I> NodeExp<I> {
     where
         I: Clone,
     {
-        self.attributes.check_function(ALLOWED_ATTRIBUTES)?;
+        self.attributes.check_attributes(
+            &[], 
+            ALLOWED_ATTRIBUTES, 
+            &[]
+        )?;
+
+        self.fields.check_attributes()?;
+        
         Ok(())
     }
 
-    pub fn check_types(&self, reference_types: &HashMap<Ident<I>, Vec<String>>, node_reference_types: &HashSet<Ident<I>>) -> ParserSlimResult<I, ()>
+    pub fn check_types(
+        &self,
+        reference_types: &HashMap<Ident<I>, Vec<String>>,
+        node_reference_types: &HashSet<Ident<I>>,
+    ) -> ParserSlimResult<I, ()>
     where
         I: Clone,
     {
@@ -138,7 +156,8 @@ impl<I> NodeExp<I> {
         I: Clone,
     {
         let type_generics = Default::default();
-        self.fields.check_cycle(&self.name, &type_generics, dependency_graph)
+        self.fields
+            .check_cycle(&self.name, &type_generics, dependency_graph)
     }
 }
 
@@ -177,7 +196,7 @@ impl<I> ParserSerialize for NodeExp<I> {
     fn compose<W: std::fmt::Write>(
         &self,
         f: &mut W,
-        ctx: ComposeContext
+        ctx: ComposeContext,
     ) -> build_script_shared::error::ComposerResult<()> {
         let indents = ctx.create_indents();
         self.comments.compose(f, ctx)?;

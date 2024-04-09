@@ -39,7 +39,7 @@ where
                 comments: new_doc_comments,
                 attributes: Default::default(),
                 type_type: SchemaStmType::Import,
-                type_name: self.name.clone()
+                type_name: self.name.clone(),
             }));
         }
 

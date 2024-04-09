@@ -1,20 +1,18 @@
-use std::collections::{HashMap, HashSet};
-use std::ops::Deref;
-
 use nom::Err;
+use std::collections::{HashMap, HashSet};
 
 use crate::error::{ParserError, ParserErrorKind, ParserSlimResult};
-use crate::parsers::{Ident, Marked};
+use crate::parsers::Ident;
 
 #[derive(Debug)]
 pub struct DependencyGraph<'a, I> {
-    graph: HashMap<&'a Ident<I>, Vec<&'a Ident<I>>>
+    graph: HashMap<&'a Ident<I>, Vec<&'a Ident<I>>>,
 }
 
 impl<'a, I> DependencyGraph<'a, I> {
     pub fn new() -> Self {
         Self {
-            graph: Default::default()
+            graph: Default::default(),
         }
     }
 
@@ -34,9 +32,13 @@ impl<'a, I> DependencyGraph<'a, I> {
         dbg!("----");
     }
 
-    pub fn add_dependency(&mut self, type_name: &Ident<I>, inner_type: &'a Ident<I>) -> ParserSlimResult<I, ()> 
+    pub fn add_dependency(
+        &mut self,
+        type_name: &Ident<I>,
+        inner_type: &'a Ident<I>,
+    ) -> ParserSlimResult<I, ()>
     where
-        I: Clone
+        I: Clone,
     {
         let outgoing = self.graph.get_mut(type_name).unwrap();
         outgoing.push(inner_type);
@@ -62,9 +64,7 @@ impl<'a, I> DependencyGraph<'a, I> {
         // call recur for all vertices
         for u in self.graph.keys() {
             // Don't recur for u if it is already visited
-            if !visited.contains(u)
-                && self.is_cyclic_recur(u, &mut visited, &mut ancestors)
-            {
+            if !visited.contains(u) && self.is_cyclic_recur(u, &mut visited, &mut ancestors) {
                 return true;
             }
         }
@@ -73,7 +73,7 @@ impl<'a, I> DependencyGraph<'a, I> {
     }
 
     fn is_cyclic_recur(
-        &self, 
+        &self,
         current_vertex: &'a Ident<I>,
         visited: &mut HashSet<&'a Ident<I>>,
         ancestors: &mut HashSet<&'a Ident<I>>,

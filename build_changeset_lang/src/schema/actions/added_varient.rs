@@ -16,11 +16,12 @@ use crate::{ChangeSetError, ChangeSetResult};
 /// "+ enum \<ident\>.\<ident\>"
 #[derive(PartialEq, Eq, Debug, Clone, Hash, Dummy)]
 pub struct AddedVarient<I> {
+    pub(crate) attributes: Attributes<I>,
     pub(crate) comments: Comments,
     pub(crate) type_name: Ident<I>,
     pub(crate) varient_name: Ident<I>,
-    pub(crate) varient_type: AddedVarientType,
-    pub(crate) order: u64
+    pub(crate) varient_type: AddedVarientType<I>,
+    pub(crate) order: u64,
 }
 
 impl<I> AddedVarient<I> {
@@ -30,11 +31,12 @@ impl<I> AddedVarient<I> {
         F: Fn(I) -> O + Copy,
     {
         AddedVarient {
+            attributes: self.attributes.map(f),
             comments: self.comments,
             type_name: self.type_name.map(f),
             varient_name: self.varient_name.map(f),
-            varient_type: self.varient_type,
-            order: self.order
+            varient_type: self.varient_type.map(f),
+            order: self.order,
         }
     }
 
@@ -59,17 +61,26 @@ impl<I> AddedVarient<I> {
                 });
             }
 
-            let new_varient = match self.varient_type {
-                AddedVarientType::Struct => EnumVarient::Struct { 
-                    name: self.varient_name.clone(), 
-                    comments: self.comments.get_doc_comments(), 
-                    fields: Default::default(), 
-                    marker: Mark::null()
+            let new_varient = match &self.varient_type {
+                AddedVarientType::Struct => EnumVarient::Struct {
+                    attributes: self.attributes.clone(),
+                    name: self.varient_name.clone(),
+                    comments: self.comments.get_doc_comments(),
+                    fields: Default::default(),
+                    marker: Mark::null(),
                 },
-                AddedVarientType::Unit => EnumVarient::Unit { 
-                    name: self.varient_name.clone(), 
-                    comments: self.comments.get_doc_comments(), 
-                    marker: Mark::null()
+                AddedVarientType::Opaque(ty) => EnumVarient::Opaque {
+                    attributes: self.attributes.clone(),
+                    name: self.varient_name.clone(),
+                    comments: self.comments.get_doc_comments(),
+                    ty: ty.clone(),
+                    marker: Mark::null(),
+                },
+                AddedVarientType::Unit => EnumVarient::Unit {
+                    attributes: self.attributes.clone(),
+                    name: self.varient_name.clone(),
+                    comments: self.comments.get_doc_comments(),
+                    marker: Mark::null(),
                 },
             };
             e.varients.insert(self.order as usize, new_varient);
@@ -81,10 +92,11 @@ impl<I> AddedVarient<I> {
 
 impl<I: InputType> ParserDeserialize<I> for AddedVarient<I> {
     fn parse(s: I) -> build_script_shared::error::ParserResult<I, Self> {
-        let (s, (comments, ((type_name, varient_name), order, varient_type))) = context(
+        let (s, (comments, attributes, ((type_name, varient_name), order, varient_type))) = context(
             "Parsing AddedVarient",
-            pair(
+            tuple((
                 Comments::parse,
+                Attributes::parse,
                 preceded(
                     ws(char('+')),
                     preceded(
@@ -92,21 +104,22 @@ impl<I: InputType> ParserDeserialize<I> for AddedVarient<I> {
                         tuple((
                             separated_pair(Ident::ident, char('.'), Ident::ident),
                             surrounded('(', u64, ')'),
-                            ws(AddedVarientType::parse)
-                        ))
+                            ws(AddedVarientType::parse),
+                        )),
                     ),
                 ),
-            ),
+            )),
         )(s)?;
 
         Ok((
             s,
             AddedVarient {
+                attributes,
                 comments,
                 type_name,
                 varient_name,
                 varient_type,
-                order
+                order,
             },
         ))
     }
@@ -116,7 +129,7 @@ impl<I> ParserSerialize for AddedVarient<I> {
     fn compose<W: std::fmt::Write>(
         &self,
         f: &mut W,
-        ctx: ComposeContext
+        ctx: ComposeContext,
     ) -> build_script_shared::error::ComposerResult<()> {
         let indents = ctx.create_indents();
         let new_ctx = ctx.set_indents(0);

@@ -1,4 +1,3 @@
-use super::generic;
 use super::EndPoint;
 use super::FieldWithReferences;
 use super::Fields;
@@ -22,15 +21,24 @@ use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::collections::HashSet;
 
-const ALLOWED_ATTRIBUTES: &[&str] = &["rename_inc", "rename_out"];
+const RENAME_INC: &'static str = "rename_inc";
+const RENAME_OUT: &'static str = "rename_out";
 
-#[derive(PartialEq, Eq, Debug, Hash, Clone, Default, PartialOrd, Ord, Dummy, Serialize, Deserialize)]
+const ALLOWED_KEY_ATTRIBUTES: &[&str] = &[RENAME_INC, RENAME_OUT];
+
+const DERIVE: &str = "derive";
+
+const ALLOWED_FUNCTION_ATTRIBUTES: &[(&str, Option<usize>)] = &[(DERIVE, None)];
+
+#[derive(
+    PartialEq, Eq, Debug, Hash, Clone, Default, PartialOrd, Ord, Dummy, Serialize, Deserialize,
+)]
 #[serde(bound = "I: Default + Clone")]
 pub struct EdgeExp<I> {
     pub name: Ident<I>,
     #[serde(flatten)]
     pub comments: Comments,
-    #[dummy(faker = "AllowedKeyValueAttribute(ALLOWED_ATTRIBUTES)")]
+    #[dummy(faker = "AllowedAttributes(AllowedKeyValueAttribute(ALLOWED_KEY_ATTRIBUTES), AllowedFunctionAttribute(ALLOWED_FUNCTION_ATTRIBUTES), AllowedFunctionKeyValueAttribute(&[]))")]
     #[serde(flatten)]
     pub attributes: Attributes<I>,
     #[serde(flatten)]
@@ -66,6 +74,14 @@ impl<I> EdgeExp<I> {
         self.fields.strip_comments();
     }
 
+    pub fn get_rename_inc(&self) -> Option<&str> {
+        self.attributes.get_key_value(RENAME_INC).map(|kv| kv.value.as_ref())
+    }
+
+    pub fn get_rename_out(&self) -> Option<&str> {
+        self.attributes.get_key_value(RENAME_OUT).map(|kv| kv.value.as_ref())
+    }
+
     pub fn parse_endpoints(s: I) -> ParserResult<I, BTreeMap<(Ident<I>, Ident<I>), EndPoint<I>>>
     where
         I: InputType,
@@ -94,11 +110,17 @@ impl<I> EdgeExp<I> {
     where
         I: Clone,
     {
-        self.attributes.check_key_value(ALLOWED_ATTRIBUTES)?;
+        self.attributes.check_attributes(
+            ALLOWED_KEY_ATTRIBUTES, 
+            ALLOWED_FUNCTION_ATTRIBUTES, 
+            &[]
+        )?;
 
         for endpoint in self.endpoints.values() {
             endpoint.check_attributes()?;
         }
+
+        self.fields.check_attributes()?;
 
         Ok(())
     }
@@ -126,7 +148,8 @@ impl<I> EdgeExp<I> {
         I: Clone,
     {
         let type_generics = Default::default();
-        self.fields.check_cycle(&self.name, &type_generics, dependency_graph)
+        self.fields
+            .check_cycle(&self.name, &type_generics, dependency_graph)
     }
 
     /// Move from one input type to another
@@ -234,10 +257,10 @@ impl<I: Dummy<Faker> + Clone> Dummy<EdgeExpOfType<I>> for EdgeExp<I> {
 
         // Se the name to the expected value
         exp.name = config.name.clone();
-        
+
         // Make sure all type references point to existing types
         exp.fields = Fields::dummy_with_rng(&FieldWithReferences(config.ref_types.clone()), rng);
-        
+
         // Update endpoints source and target to align with already created types
         if config.node_types.is_empty() {
             exp.endpoints.clear();
@@ -258,21 +281,21 @@ impl<I: Dummy<Faker> + Clone> Dummy<EdgeExpOfType<I>> for EdgeExp<I> {
                 })
                 .collect()
         }
-        
+
         exp
     }
 }
 
 mod endpoint_serde {
     use super::*;
-    use serde::{Serializer, Deserializer, Serialize, Deserialize};
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
     type EndpointContainer<I> = BTreeMap<(Ident<I>, Ident<I>), EndPoint<I>>;
 
     pub fn serialize<S, I>(list: &EndpointContainer<I>, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
-        I: Default + Clone
+        I: Default + Clone,
     {
         let new_container: Vec<_> = list.values().collect();
         new_container.serialize(serializer)
@@ -281,14 +304,17 @@ mod endpoint_serde {
     pub fn deserialize<'de, D, I>(deserializer: D) -> Result<EndpointContainer<I>, D::Error>
     where
         D: Deserializer<'de>,
-        I: Default + Clone
+        I: Default + Clone,
     {
         let new_container: Vec<EndPoint<I>> = Deserialize::deserialize(deserializer)?;
         let mut container: EndpointContainer<I> = Default::default();
         for endpoint in new_container {
             container.insert(
-                (Ident::new_alone(&endpoint.source), Ident::new_alone(&endpoint.target)), 
-                endpoint
+                (
+                    Ident::new_alone(&endpoint.source),
+                    Ident::new_alone(&endpoint.target),
+                ),
+                endpoint,
             );
         }
         Ok(container)

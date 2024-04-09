@@ -1,0 +1,64 @@
+{
+	"$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+	"name": "BUILD script",
+	"patterns": [
+		{
+			"include": "#comment"
+		},
+		{
+			"include": "#entity"
+		},
+		{
+			"include": "#keyword"
+		}
+	],
+	"repository": {
+		"typedef": {
+			"match": "[A-Z]"
+		},
+		"entity": {
+			"patterns": [
+				{
+					"name": "entity.name.tag",
+					"match": "^\\s*(node|edge|enum|struct|import|pub)"
+				},
+				{
+					"contentName": "entity.name.type",
+					"begin": "((?<=^edge)|(?<=^node)|(?<=^enum)|(?<=^struct))",
+					"end": "({|\\()"
+				},
+				{
+					"contentName": "entity.name.type",
+					"begin": ":\\s*",
+					"end": "((,)?\\s*$)"
+				}				
+			]
+		},
+		"comment": {
+			"patterns": [
+				{
+					"name": "comment.block.documentation",
+					"match": "///.*"
+				},
+				{
+					"name": "comment.line.double-slash",
+					"match": "//.*"
+				},
+				{
+					"name": "comment.block",
+					"begin": "/\\*",
+					"end": "\\*/"
+				}
+			]
+		},
+		"keyword": {
+			"patterns": [
+				{
+					"name": "keyword.control",
+					"match": "(=>|(?<==>))"
+				}
+			]	
+		}
+	},
+	"scopeName": "source.bs"
+}

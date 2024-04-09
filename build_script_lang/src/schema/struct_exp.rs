@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 
 use super::FieldValue;
-use super::{Fields, FieldWithReferences};
+use super::{FieldWithReferences, Fields};
 use build_script_shared::compose_test;
 use build_script_shared::dependency_graph::DependencyGraph;
 use build_script_shared::error::ParserError;
@@ -12,6 +12,7 @@ use build_script_shared::error::ParserSlimResult;
 use build_script_shared::parsers::*;
 use build_script_shared::InputType;
 use fake::Dummy;
+use fake::Fake;
 use fake::Faker;
 use nom::bytes::complete::*;
 use nom::character::complete::*;
@@ -23,10 +24,27 @@ use nom::Err;
 use serde::Deserialize;
 use serde::Serialize;
 
-#[derive(PartialEq, Eq, Debug, Hash, Clone, Default, PartialOrd, Ord, Dummy, Serialize, Deserialize)]
+const DERIVE: &str = "derive";
+const JSON: &str = "json";
+
+const JSON_ATTRIBUTES: &[&'static str] = &[
+    "untagged"
+];
+
+const ALLOWED_FUNCTION_ATTRIBUTES: &[(&str, Option<usize>)] = &[
+    (DERIVE, None),
+    (JSON, Some(1)),
+];
+
+#[derive(
+    PartialEq, Eq, Debug, Hash, Clone, Default, PartialOrd, Ord, Dummy, Serialize, Deserialize,
+)]
 #[serde(bound = "I: Default + Clone")]
 pub struct StructExp<I> {
     pub name: Ident<I>,
+    #[dummy(faker = "AllowedFunctionAttribute(ALLOWED_FUNCTION_ATTRIBUTES)")]
+    #[serde(flatten)]
+    pub attributes: Attributes<I>,
     #[serde(flatten)]
     pub comments: Comments,
     #[serde(flatten)]
@@ -39,13 +57,15 @@ pub struct StructExp<I> {
 
 impl<I> StructExp<I> {
     pub fn new(
-        comments: Comments, 
-        name: Ident<I>, 
-        generics: Generics<I>, 
-        fields: Fields<I>, 
-        marker: Mark<I>
+        comments: Comments,
+        attributes: Attributes<I>,
+        name: Ident<I>,
+        generics: Generics<I>,
+        fields: Fields<I>,
+        marker: Mark<I>,
     ) -> Self {
         StructExp {
+            attributes,
             comments,
             name,
             generics,
@@ -65,6 +85,7 @@ impl<I> StructExp<I> {
         F: FnMut(I) -> O + Copy,
     {
         StructExp {
+            attributes: self.attributes.map(f),
             generics: self.generics.map(f),
             comments: self.comments,
             name: self.name.map(f),
@@ -73,7 +94,36 @@ impl<I> StructExp<I> {
         }
     }
 
-    pub fn check_types(&self, reference_types: &HashMap<Ident<I>, Vec<String>>) -> ParserSlimResult<I, ()>
+    pub fn check_attributes(&self) -> ParserSlimResult<I, ()>
+    where
+        I: Clone,
+    {
+        self.attributes.check_attributes(
+            &[], 
+            ALLOWED_FUNCTION_ATTRIBUTES, 
+            &[]
+        )?;
+
+        let json_functions = self.attributes.get_functions(JSON);
+        for func in json_functions {
+            if let Some(tag) = func.values.get(0) {
+                if !JSON_ATTRIBUTES.contains(&tag.as_str()) {
+                    return Err(Err::Failure(ParserError::new_at(tag, ParserErrorKind::InvalidAttribute(format!("{}", JSON_ATTRIBUTES.join(","))))));
+                }
+            } else {
+                return Err(Err::Failure(ParserError::new_at(func, ParserErrorKind::InvalidAttribute(format!("Expected 1 argument")))));
+            }
+        }
+
+        self.fields.check_attributes()?;
+
+        Ok(())
+    }
+
+    pub fn check_types(
+        &self,
+        reference_types: &HashMap<Ident<I>, Vec<String>>,
+    ) -> ParserSlimResult<I, ()>
     where
         I: Clone,
     {
@@ -93,7 +143,8 @@ impl<I> StructExp<I> {
         I: Clone,
     {
         let type_generics = self.generics.get_meta();
-        self.fields.check_cycle(&self.name, &type_generics, dependency_graph)
+        self.fields
+            .check_cycle(&self.name, &type_generics, dependency_graph)
     }
 
     pub fn check_used(&self) -> ParserSlimResult<I, ()>
@@ -109,9 +160,9 @@ impl<I> StructExp<I> {
 
         for generic in &self.generics.generics {
             if local_references.contains(&generic.letter) {
-                return  Err(Err::Failure(ParserError::new_at(
+                return Err(Err::Failure(ParserError::new_at(
                     &generic.letter,
-                    ParserErrorKind::UnusedGeneric
+                    ParserErrorKind::UnusedGeneric,
                 )));
             }
         }
@@ -123,6 +174,7 @@ impl<I> StructExp<I> {
 impl<I: InputType> ParserDeserialize<I> for StructExp<I> {
     fn parse(s: I) -> ParserResult<I, Self> {
         let (s, comments) = Comments::parse(s)?;
+        let (s, attributes) = Attributes::parse(s)?;
         // Parse the name
         let (s, _) = ws(terminated(tag("struct"), many1(multispace1)))(s)?;
         // Parse the name
@@ -134,6 +186,7 @@ impl<I: InputType> ParserDeserialize<I> for StructExp<I> {
         Ok((
             s,
             StructExp {
+                attributes,
                 generics,
                 comments,
                 name,
@@ -148,10 +201,11 @@ impl<I> ParserSerialize for StructExp<I> {
     fn compose<W: std::fmt::Write>(
         &self,
         f: &mut W,
-        ctx: ComposeContext
+        ctx: ComposeContext,
     ) -> build_script_shared::error::ComposerResult<()> {
         let indents = ctx.create_indents();
         self.comments.compose(f, ctx)?;
+        self.attributes.compose(f, ctx)?;
         write!(f, "{indents}struct ")?;
         self.name.compose(f, ctx.set_indents(0))?;
         write!(f, " ")?;
@@ -179,7 +233,6 @@ impl<I: Dummy<Faker> + Clone> Dummy<StructExpOfType<I>> for StructExp<I> {
         config: &StructExpOfType<I>,
         rng: &mut R,
     ) -> Self {
-
         let generics = Generics::dummy_with_rng(&GenericsOfSize(config.generic_count), rng);
 
         // Create a list of all valid references
@@ -189,12 +242,9 @@ impl<I: Dummy<Faker> + Clone> Dummy<StructExpOfType<I>> for StructExp<I> {
         }
 
         let mut fields = Fields::dummy_with_rng(&FieldWithReferences(local_ref_types), rng);
-        
+
         // Test if all the generics are referenced in the fields
-        let mut all_generics = generics.generics
-            .iter()
-            .map(|g| g.letter.clone())
-            .collect();
+        let mut all_generics = generics.generics.iter().map(|g| g.letter.clone()).collect();
 
         fields.remove_used(&mut all_generics);
 
@@ -204,32 +254,30 @@ impl<I: Dummy<Faker> + Clone> Dummy<StructExpOfType<I>> for StructExp<I> {
                 continue;
             }
 
-            fields.insert_field(
-                FieldValue {
-                    name: Ident::new(
-                        format!("phantom_{}", generic.letter),
-                        Mark::dummy_with_rng(&Faker, rng)
-                    ),
-                    visibility: Dummy::dummy_with_rng(&Faker, rng),
-                    comments: Dummy::dummy_with_rng(&Faker, rng),
-                    field_type: Types::Reference { 
-                        inner: generic.letter.clone(), 
-                        generics: Default::default(), 
-                        marker: Mark::dummy_with_rng(&Faker, rng) 
-                    },
-                    order: fields
-                        .last_order()
-                        .map_or_else(|| 0, |order| order + 1)
-                }
-            );
+            fields.insert_field(FieldValue {
+                name: Ident::new(
+                    format!("phantom_{}", generic.letter),
+                    Mark::dummy_with_rng(&Faker, rng),
+                ),
+                attributes: AllowedFunctionAttribute(ALLOWED_FUNCTION_ATTRIBUTES).fake_with_rng(rng),
+                visibility: Dummy::dummy_with_rng(&Faker, rng),
+                comments: Dummy::dummy_with_rng(&Faker, rng),
+                field_type: Types::Reference {
+                    inner: generic.letter.clone(),
+                    generics: Default::default(),
+                    marker: Mark::dummy_with_rng(&Faker, rng),
+                },
+                order: fields.last_order().map_or_else(|| 0, |order| order + 1),
+            });
         }
 
         StructExp {
+            attributes: Attributes::dummy_with_rng(&AllowedFunctionAttribute(ALLOWED_FUNCTION_ATTRIBUTES), rng),
             name: config.name.clone(),
             comments: Dummy::dummy_with_rng(&Faker, rng),
             generics,
             fields,
-            marker: Dummy::dummy_with_rng(&Faker, rng)
+            marker: Dummy::dummy_with_rng(&Faker, rng),
         }
     }
 }

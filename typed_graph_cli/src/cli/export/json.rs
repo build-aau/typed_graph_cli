@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use crate::cli::*;
 use std::fs::File;
 
-/// Exports the schemas in the project json files
+/// Exports the schemas in the project to json files
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
 pub struct Json {

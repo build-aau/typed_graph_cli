@@ -27,7 +27,7 @@ pub enum ChangeSetError {
     #[error("Invalid field path {path} to {target}")]
     InvalidFieldPath { path: String, target: String },
     #[error("Invalid migration from {old_version} to {new_version} due to {reason} at {path}")]
-    InvalidTypeMigration { 
+    InvalidTypeMigration {
         old_version: String,
         new_version: String,
         reason: String,

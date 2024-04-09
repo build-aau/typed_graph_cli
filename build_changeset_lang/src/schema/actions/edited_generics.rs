@@ -16,7 +16,7 @@ use crate::{ChangeSetError, ChangeSetResult};
 pub struct EditedGenerics<I> {
     pub type_name: Ident<I>,
     pub old_generics: Generics<I>,
-    pub new_generics: Generics<I>
+    pub new_generics: Generics<I>,
 }
 
 impl<I> EditedGenerics<I> {
@@ -28,7 +28,7 @@ impl<I> EditedGenerics<I> {
         EditedGenerics {
             type_name: self.type_name.map(f),
             old_generics: self.old_generics.map(f),
-            new_generics: self.new_generics.map(f)
+            new_generics: self.new_generics.map(f),
         }
     }
 
@@ -36,24 +36,27 @@ impl<I> EditedGenerics<I> {
     where
         I: Default + Clone + PartialEq,
     {
-        let stm = schema
-            .get_type_mut(None, &self.type_name)
-            .ok_or_else(|| ChangeSetError::InvalidAction {
+        let stm = schema.get_type_mut(None, &self.type_name).ok_or_else(|| {
+            ChangeSetError::InvalidAction {
                 action: format!("edit generics"),
                 reason: format!("no type named {} exists", self.type_name),
-            })?;
-            
+            }
+        })?;
+
         let stm_type = stm.get_schema_type();
 
         let generics_opt = match stm {
             SchemaStm::Struct(s) => Some(&mut s.generics),
             SchemaStm::Enum(e) => Some(&mut e.generics),
-            _ => None
+            _ => None,
         };
 
         let genereics = generics_opt.ok_or_else(|| ChangeSetError::InvalidAction {
             action: format!("edit generics"),
-            reason: format!("attempted to change generics on {} which does not support generics", stm_type),
+            reason: format!(
+                "attempted to change generics on {} which does not support generics",
+                stm_type
+            ),
         })?;
 
         if genereics != &self.old_generics {
@@ -76,17 +79,13 @@ impl<I: InputType> ParserDeserialize<I> for EditedGenerics<I> {
     fn parse(s: I) -> build_script_shared::error::ParserResult<I, Self> {
         let (s, (type_type, (old_generics, new_generics))) = context(
             "Parsing EditedGenerics",
-                preceded(
-                    ws(char('*')),
-                     pair(
-                        ws(Ident::ident), 
-                        key_value(
-                            Generics::parse, 
-                            pair(char('='), char('>')), 
-                            Generics::parse
-                        )
-                    )
+            preceded(
+                ws(char('*')),
+                pair(
+                    ws(Ident::ident),
+                    key_value(Generics::parse, pair(char('='), char('>')), Generics::parse),
                 ),
+            ),
         )(s)?;
 
         Ok((
@@ -94,7 +93,7 @@ impl<I: InputType> ParserDeserialize<I> for EditedGenerics<I> {
             EditedGenerics {
                 type_name: type_type,
                 old_generics,
-                new_generics
+                new_generics,
             },
         ))
     }
@@ -104,7 +103,7 @@ impl<I> ParserSerialize for EditedGenerics<I> {
     fn compose<W: std::fmt::Write>(
         &self,
         f: &mut W,
-        ctx: ComposeContext
+        ctx: ComposeContext,
     ) -> build_script_shared::error::ComposerResult<()> {
         let indents = ctx.create_indents();
         let new_ctx = ctx.set_indents(0);

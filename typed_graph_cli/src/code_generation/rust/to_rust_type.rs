@@ -21,13 +21,15 @@ impl<I> ToRustType for Types<I> {
             Types::I32(_) => self.to_string(),
             Types::I16(_) => self.to_string(),
             Types::I8(_) => self.to_string(),
-            Types::Reference{inner, generics, ..} => {
+            Types::Reference {
+                inner, generics, ..
+            } => {
                 let generics = generics
                     .iter()
                     .map(|g| g.to_rust_type())
                     .collect::<Vec<_>>()
                     .join(", ");
-                
+
                 let generic_declaration = if generics.is_empty() {
                     "".to_string()
                 } else {
@@ -35,11 +37,11 @@ impl<I> ToRustType for Types<I> {
                 };
 
                 format!("{inner}{generic_declaration}")
-            },
-            Types::Option{inner, ..} => format!("Option<{}>", inner.to_rust_type()),
-            Types::List{inner, ..} => format!("Vec<{}>", inner.to_rust_type()),
-            Types::Map{key, value,..} => {
-                format!("HashMap<{}, {}>", key.to_rust_type(), value.to_rust_type())
+            }
+            Types::Option { inner, .. } => format!("Option<{}>", inner.to_rust_type()),
+            Types::List { inner, .. } => format!("Vec<{}>", inner.to_rust_type()),
+            Types::Map { key, value, .. } => {
+                format!("IndexMap<{}, {}>", key.to_rust_type(), value.to_rust_type())
             }
         }
     }

@@ -22,15 +22,36 @@ where
     where
         BUILDScriptError: From<nom::Err<ParserError<I>>>,
     {
-        let schema = append_parser_error(Self::parse, ParserErrorKind::EndOfFile)(s.into())
-            .map(|(_, schema)| schema)?;
-        Ok(schema)
+        let value = append_parser_error(Self::parse, ParserErrorKind::EndOfFile)(s.into())
+            .map(|(_, value)| value)?;
+        Ok(value)
+    }
+}
+
+pub trait ParserDeserializeTo<I: InputType, O> {
+    fn deserialize<S: Into<I>>(self, s: S) -> BUILDScriptResult<O>
+    where
+        BUILDScriptError: From<nom::Err<ParserError<I>>>;
+}
+
+impl<I, O, F> ParserDeserializeTo<I, O> for F
+where
+    I: InputType,
+    F: Fn(I) -> ParserResult<I, O> + Sized,
+{
+    fn deserialize<S: Into<I>>(self, s: S) -> BUILDScriptResult<O>
+    where
+        BUILDScriptError: From<nom::Err<ParserError<I>>>,
+    {
+        let value = append_parser_error(self, ParserErrorKind::EndOfFile)(s.into())
+            .map(|(_, value)| value)?;
+        Ok(value)
     }
 }
 
 #[derive(Clone, Copy, Default)]
 pub struct ComposeContext {
-    pub indents: usize
+    pub indents: usize,
 }
 
 impl ComposeContext {

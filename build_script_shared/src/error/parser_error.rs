@@ -34,7 +34,7 @@ pub enum ParserErrorKind {
     UnknownReference(String),
     UnexpectedGenericCount(String, usize, usize),
     InvalidTypeConvertion(String, String),
-    UnusedGeneric
+    UnusedGeneric,
 }
 
 impl<I> ParserError<I> {
@@ -74,9 +74,7 @@ impl<I: InputType> ParseError<I> for ParserError<I> {
     }
 
     fn from_char(input: I, char: char) -> Self {
-        let actual = input
-            .iter_elements()
-            .next();
+        let actual = input.iter_elements().next();
         ParserError {
             errors: vec![(input, ParserErrorKind::ExpectedChar(char, actual))],
         }
@@ -153,9 +151,10 @@ impl Display for ParserErrorKind {
             ParserErrorKind::UnknownReference(field_type) => {
                 write!(f, "Unknown reference {field_type}\n")?
             }
-            ParserErrorKind::UnexpectedGenericCount(field_type, expected, actual) => {
-                write!(f, "{field_type} takes {expected} generic argument(s) but {actual} was provided")?
-            }
+            ParserErrorKind::UnexpectedGenericCount(field_type, expected, actual) => write!(
+                f,
+                "{field_type} takes {expected} generic argument(s) but {actual} was provided"
+            )?,
             ParserErrorKind::UnusedGeneric => {
                 write!(f, "Generic is never used")?;
             }

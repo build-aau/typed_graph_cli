@@ -9,7 +9,7 @@ if not exist %BinPath% (
 
 cargo build --release
 
-copy /Y ..\target\release\migration_handler.exe %BinPath%\migration_handler.exe
+copy /Y ..\target\release\typed_graph.exe %BinPath%\typed_graph.exe
 
 setlocal enabledelayedexpansion
 set replaced=%PATH%

@@ -13,7 +13,9 @@ use nom::sequence::*;
 use serde::Deserialize;
 use serde::Serialize;
 
-#[derive(PartialEq, Eq, Debug, Hash, Clone, Default, PartialOrd, Ord, Dummy, Serialize, Deserialize)]
+#[derive(
+    PartialEq, Eq, Debug, Hash, Clone, Default, PartialOrd, Ord, Dummy, Serialize, Deserialize,
+)]
 #[serde(bound = "I: Default + Clone")]
 pub struct ImportExp<I> {
     pub name: Ident<I>,
@@ -72,7 +74,7 @@ impl<I> ParserSerialize for ImportExp<I> {
     fn compose<W: std::fmt::Write>(
         &self,
         f: &mut W,
-        ctx: ComposeContext
+        ctx: ComposeContext,
     ) -> build_script_shared::error::ComposerResult<()> {
         let indents = ctx.create_indents();
         self.comments.compose(f, ctx)?;

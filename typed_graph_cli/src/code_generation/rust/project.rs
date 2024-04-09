@@ -62,10 +62,10 @@ fn write_mod(
     let project_mod_path = project_folder.join("mod.rs");
 
     let mut project_mod = String::new();
-    
+
     writeln!(project_mod, "#[allow(unused)]")?;
     writeln!(project_mod, "mod imports;")?;
-    
+
     for schema in project.iter_schema() {
         let schema = project.get_schema(schema)?;
         writeln!(

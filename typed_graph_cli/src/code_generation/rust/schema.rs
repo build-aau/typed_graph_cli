@@ -7,12 +7,12 @@ use build_script_shared::parsers::Ident;
 use std::collections::HashSet;
 use std::fmt::{Debug, Write};
 use std::fs::create_dir;
-use std::ops::Bound;
 use std::path::Path;
+use build_script_shared::parsers::ParserSerialize;
 
-impl<I> CodeGenerator<targets::Rust> for Schema<I> 
+impl<I> CodeGenerator<targets::Rust> for Schema<I>
 where
-    I: Ord + Debug
+    I: Ord + Debug,
 {
     fn get_filename(&self) -> String {
         self.version.to_string().replace(".", "_").to_snake_case()
@@ -84,9 +84,12 @@ fn write_content<I>(
     structs_folder: &Path,
     edges_folder: &Path,
     types_folder: &Path,
-) -> GenResult<()> {
+) -> GenResult<()> 
+where
+    I: Ord
+{
     // Write ./{nodes|edges|types}/{filename}.rs
-    for stm in &schema.content {
+    for stm in schema.iter() {
         let added_files = match stm {
             SchemaStm::Node(n) => {
                 CodeGenerator::<targets::Rust>::aggregate_content(n, &nodes_folder)
@@ -117,7 +120,10 @@ fn write_mod<I>(
     structs_folder: &Path,
     edges_folder: &Path,
     types_folder: &Path,
-) -> GenResult<()> {
+) -> GenResult<()> 
+where
+    I: Ord
+{
     // Write ./{nodes|edges|types}/mod.rs
     let nodes_mod_path = nodes_folder.join("mod.rs");
     let structs_mod_path = structs_folder.join("mod.rs");
@@ -129,7 +135,7 @@ fn write_mod<I>(
     let mut edges_mod = String::new();
     let mut types_mod = String::new();
 
-    for stm in &schema.content {
+    for stm in schema.iter() {
         let (filename, f) = match stm {
             SchemaStm::Node(n) => (
                 CodeGenerator::<targets::Rust>::get_filename(n),
@@ -197,6 +203,8 @@ fn write_mod<I>(
     writeln!(schema_mod, "#[allow(unused)]")?;
     writeln!(schema_mod, "pub use super::imports::*;")?;
 
+    writeln!(schema_mod, "pub const SCHEMA_DEFINITION: &'static str = r#\"{}\"#;", schema.serialize_to_string()?)?;
+
     let imports_path = schema_folder.join("imports.rs");
     new_files.create_file(imports_path);
 
@@ -221,6 +229,7 @@ fn write_schema_impl_rs<I: Ord>(
     writeln!(schema_rs, "use typed_graph::*;")?;
     writeln!(schema_rs, "use serde::{{Serialize, Deserialize}};")?;
     writeln!(schema_rs, "")?;
+    writeln!(schema_rs, "#[allow(unused)]")?;
     writeln!(
         schema_rs,
         "pub type {schema_name}Graph<NK, EK> = TypedGraph<NK, EK, {schema_name}<NK, EK>>;"
@@ -259,7 +268,7 @@ fn write_schema_impl_rs<I: Ord>(
 
     writeln!(schema_rs, "")?;
     writeln!(schema_rs, "    #[allow(unused_variables)]")?;
-    writeln!(schema_rs, "    fn allow_edge(&self, new_edge_count: usize, edge_ty: EdgeType, source_ty: NodeType, target_ty: NodeType) -> Result<(), DisAllowedEdge> {{")?;
+    writeln!(schema_rs, "    fn allow_edge(&self, outgoing_edge_count: usize, incoming_edge_count: usize, edge_ty: EdgeType, source_ty: NodeType, target_ty: NodeType) -> Result<(), DisAllowedEdge> {{")?;
     writeln!(
         schema_rs,
         "        match (edge_ty, source_ty, target_ty) {{"
@@ -267,19 +276,15 @@ fn write_schema_impl_rs<I: Ord>(
     for e in schema.edges() {
         let edge_type = &e.name;
         for ((source, target), endpoint) in &e.endpoints {
-            match endpoint.quantity.quantity {
-                Bound::Included(i) => {
-                    writeln!(schema_rs, "            (EdgeType::{edge_type}, NodeType::{source}, NodeType::{target}) if new_edge_count <= {i} => Ok(()),")?;
-                    writeln!(schema_rs, "            (EdgeType::{edge_type}, NodeType::{source}, NodeType::{target}) => Err(DisAllowedEdge::ToMany),")?;
-                }
-                Bound::Excluded(i) => {
-                    writeln!(schema_rs, "            (EdgeType::{edge_type}, NodeType::{source}, NodeType::{target}) if new_edge_count < {i} => Ok(()),")?;
-                    writeln!(schema_rs, "            (EdgeType::{edge_type}, NodeType::{source}, NodeType::{target}) => Err(DisAllowedEdge::ToMany),")?;
-                }
-                Bound::Unbounded => {
-                    writeln!(schema_rs, "            (EdgeType::{edge_type}, NodeType::{source}, NodeType::{target}) => Ok(()),")?;
-                }
+            if let Some((_, upper)) = endpoint.incoming_quantity.bounds {
+                writeln!(schema_rs, "            (EdgeType::{edge_type}, NodeType::{source}, NodeType::{target}) if incoming_edge_count > {upper} => Err(DisAllowedEdge::ToManyIncoming),")?;
             }
+
+            if let Some((_, upper)) = endpoint.outgoing_quantity.bounds {
+                writeln!(schema_rs, "            (EdgeType::{edge_type}, NodeType::{source}, NodeType::{target}) if outgoing_edge_count > {upper} => Err(DisAllowedEdge::ToManyOutgoing),")?;
+            }
+
+            writeln!(schema_rs, "            (EdgeType::{edge_type}, NodeType::{source}, NodeType::{target}) => Ok(()),")?;
         }
     }
     writeln!(schema_rs, "            #[allow(unreachable_patterns)]")?;
@@ -321,7 +326,7 @@ pub(super) fn write_migrate_schema<I: Ord>(
         |handler| handler.to_string(),
     );
 
-    let new_types: HashSet<_> = new_schema.content.iter().map(SchemaStm::get_type).collect();
+    let new_types: HashSet<_> = new_schema.iter().map(SchemaStm::get_type).collect();
 
     let mut s = String::new();
     writeln!(s, "impl<NK, EK> MigrateSchema<NK, EK, {new_schema_full_path}<NK, EK>> for {old_schema_name}<NK, EK>")?;

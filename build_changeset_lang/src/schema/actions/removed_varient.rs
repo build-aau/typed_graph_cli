@@ -45,13 +45,13 @@ impl<I> RemovedVarient<I> {
             })?;
 
         if let SchemaStm::Enum(e) = enum_stm {
-            let varient_idx = e
-                .varient_position(&self.varient_name)
-                .ok_or_else(|| ChangeSetError::InvalidAction {
+            let varient_idx = e.varient_position(&self.varient_name).ok_or_else(|| {
+                ChangeSetError::InvalidAction {
                     action: format!("remove varient"),
                     reason: format!("no varient named {} exists", self.varient_name),
-                })?;
-                
+                }
+            })?;
+
             e.varients.remove(varient_idx);
         }
 
@@ -86,7 +86,7 @@ impl<I> ParserSerialize for RemovedVarient<I> {
     fn compose<W: std::fmt::Write>(
         &self,
         f: &mut W,
-        ctx: ComposeContext
+        ctx: ComposeContext,
     ) -> build_script_shared::error::ComposerResult<()> {
         let indents = ctx.create_indents();
         let new_ctx = ctx.set_indents(0);

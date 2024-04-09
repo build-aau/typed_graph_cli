@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use build_changeset_lang::{ChangeSet, FieldPath, SingleChange};
 use build_script_shared::parsers::{Generics, Ident, Mark, Types};
@@ -7,9 +7,9 @@ use std::fmt::Write;
 use crate::{GenResult, ToRustType};
 
 pub fn get_generic_changes<'a, I: PartialEq + Clone>(
-    type_name: &'a Ident<I>, 
-    generics: &'a Generics<I>, 
-    changeset: &'a ChangeSet<I>
+    type_name: &'a Ident<I>,
+    generics: &'a Generics<I>,
+    changeset: &'a ChangeSet<I>,
 ) -> (Vec<&'a Ident<I>>, Vec<&'a Ident<I>>) {
     let changes = changeset.get_changes(FieldPath::new(type_name.clone()));
 
@@ -43,9 +43,9 @@ pub fn get_generic_changes<'a, I: PartialEq + Clone>(
 pub fn get_generic_field_type_changes<I: Ord + Default + Clone>(
     type_name: &Ident<I>,
     generics: &Generics<I>,
-    new_generics: &Vec<&Ident<I>>, 
+    new_generics: &Vec<&Ident<I>>,
     old_generics: &Vec<&Ident<I>>,
-    changeset: &ChangeSet<I>
+    changeset: &ChangeSet<I>,
 ) -> (BTreeMap<Types<I>, BTreeSet<Types<I>>>, BTreeSet<String>) {
     let changes = changeset.get_changes(FieldPath::new(type_name.clone()));
 
@@ -61,21 +61,18 @@ pub fn get_generic_field_type_changes<I: Ord + Default + Clone>(
         let old_ident: Ident<I> = Ident::new_alone(format!("{}Old", generic));
         let new_ident: Ident<I> = Ident::new_alone(format!("{}New", generic));
 
-        let old_types = Types::Reference { 
-            inner: old_ident, 
-            generics: Default::default(), 
-            marker: Mark::null() 
+        let old_types = Types::Reference {
+            inner: old_ident,
+            generics: Default::default(),
+            marker: Mark::null(),
         };
-        let new_types = Types::Reference { 
-            inner: new_ident, 
-            generics: Default::default(), 
-            marker: Mark::null() 
+        let new_types = Types::Reference {
+            inner: new_ident,
+            generics: Default::default(),
+            marker: Mark::null(),
         };
 
-        into_mapping
-            .entry(old_types)
-            .or_default()
-            .insert(new_types);
+        into_mapping.entry(old_types).or_default().insert(new_types);
     }
 
     let available_generics: HashSet<_> = generics
@@ -97,24 +94,22 @@ pub fn get_generic_field_type_changes<I: Ord + Default + Clone>(
             let mut old_generics = available_generics.clone();
             old_field_type.remove_used(&mut old_generics);
 
-            let new_field_type = new_field_type
-                .map_reference(|ident| {
-                    if available_generics.contains(&&ident) {
-                        Ident::new_alone(format!("{ident}New"))
-                    } else {
-                        ident
-                    }
-                });
+            let new_field_type = new_field_type.map_reference(|ident| {
+                if available_generics.contains(&&ident) {
+                    Ident::new_alone(format!("{ident}New"))
+                } else {
+                    ident
+                }
+            });
 
-            let old_field_type = old_field_type
-                .map_reference(|ident| {
-                    if available_generics.contains(&&ident) {
-                        Ident::new_alone(format!("{ident}Old"))
-                    } else {
-                        ident
-                    }
-                });
-            
+            let old_field_type = old_field_type.map_reference(|ident| {
+                if available_generics.contains(&&ident) {
+                    Ident::new_alone(format!("{ident}Old"))
+                } else {
+                    ident
+                }
+            });
+
             into_mapping
                 .entry(old_field_type)
                 .or_default()
@@ -125,7 +120,7 @@ pub fn get_generic_field_type_changes<I: Ord + Default + Clone>(
         // By figure out which generics need a Default implementation
         if let SingleChange::AddedField(f) = change {
             let new_field_type = f.field_type();
-            
+
             let mut available_generics = available_generics.clone();
             new_field_type.remove_used(&mut available_generics);
             let used_generics = available_generics
@@ -143,16 +138,20 @@ pub fn get_generic_field_type_changes<I: Ord + Default + Clone>(
 pub fn create_generics<I: PartialEq + Ord + Clone + Default>(
     type_name: &Ident<I>,
     generics: &Generics<I>,
-    changeset: &ChangeSet<I>
-) -> GenResult<(String, String, String, String)> 
+    changeset: &ChangeSet<I>,
+) -> GenResult<(String, String, String, String)>
 where
-    Types<I>: ToRustType
+    Types<I>: ToRustType,
 {
     let (old_generics, new_generics) = get_generic_changes(type_name, generics, changeset);
 
     let old_generic_letters: Vec<_> = old_generics.iter().map(|g| format!("{}Old", g)).collect();
     let new_generic_letters: Vec<_> = new_generics.iter().map(|g| format!("{}New", g)).collect();
-    let all_generics: Vec<_> = old_generic_letters.iter().chain(new_generic_letters.iter()).cloned().collect();
+    let all_generics: Vec<_> = old_generic_letters
+        .iter()
+        .chain(new_generic_letters.iter())
+        .cloned()
+        .collect();
 
     let fmt_old_generic = old_generic_letters.join(", ");
     let fmt_new_generic = new_generic_letters.join(", ");
@@ -177,11 +176,11 @@ where
     };
 
     let (into_mapping, default_mapping) = get_generic_field_type_changes(
-        type_name, 
-        generics, 
-        &new_generics, 
-        &old_generics, 
-        changeset
+        type_name,
+        generics,
+        &new_generics,
+        &old_generics,
+        changeset,
     );
 
     // Build where clause
@@ -209,5 +208,10 @@ where
         " {{".to_string()
     };
 
-    Ok((end_bracket, new_type_generics, old_type_generics, impl_generics))
+    Ok((
+        end_bracket,
+        new_type_generics,
+        old_type_generics,
+        impl_generics,
+    ))
 }

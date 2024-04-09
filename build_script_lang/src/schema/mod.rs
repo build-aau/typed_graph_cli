@@ -1,18 +1,17 @@
 mod edge_exp;
 mod enum_exp;
-mod generic;
+mod enum_varient;
 mod import_exp;
 mod node_exp;
 mod schema;
 mod schema_stm;
 mod schema_stm_type;
 mod struct_exp;
-mod enum_varient;
 
-pub use enum_varient::*;
+pub use crate::generic::*;
 pub use edge_exp::*;
 pub use enum_exp::*;
-pub use generic::*;
+pub use enum_varient::*;
 pub use import_exp::*;
 pub use node_exp::*;
 pub use schema::*;

@@ -2,7 +2,9 @@ use build_script_lang::schema::{NodeExp, Schema};
 use std::fmt::Write;
 use std::path::Path;
 
-use crate::{targets, CodeGenerator, GenResult, GeneratedCode, ToPythonType, ToSnakeCase};
+use crate::{targets, CodeGenerator, GenResult, GeneratedCode, ToSnakeCase};
+
+use super::{write_comments, write_fields};
 
 impl<I> CodeGenerator<targets::Python> for NodeExp<I> {
     fn get_filename(&self) -> String {
@@ -21,37 +23,30 @@ impl<I> CodeGenerator<targets::Python> for NodeExp<I> {
 
         let mut s = String::new();
 
-        writeln!(s, "from ..node import Node")?;
         writeln!(s, "from ..node_type import NodeType")?;
         writeln!(s, "from ..structs import *")?;
         writeln!(s, "from ..types import *")?;
         writeln!(s, "from ..imports import *")?;
         writeln!(s, "from ...imports import *")?;
         writeln!(s, "from .. import *")?;
-        writeln!(s, "from typing import Optional, List, Dict, Iterable, Tuple")?;
+        writeln!(s, "from typed_graph import NodeExt, RecievedNoneValue")?;
+        writeln!(
+            s,
+            "from typing import Optional, List, Dict, Iterable, Tuple, ClassVar"
+        )?;
+        writeln!(s, "from pydantic import Field, AliasChoices")?;
         writeln!(s, "")?;
-        writeln!(s, "class {node_name}(Node):")?;
-        if self.comments.has_doc() {
-            writeln!(s, "    \"\"\"")?;
-            for comment in self.comments.iter_doc() {
-                writeln!(s, "    {comment}")?;
-            }
-            writeln!(s, "    \"\"\"")?;
-        }
+        writeln!(s, "class {node_name}(NodeExt[NodeId, NodeType]):")?;
+        write_comments(&mut s, &self.comments)?;
         writeln!(s, "    id: NodeId")?;
-        for field_value in self.fields.iter() {
-            let field_name = &field_value.name;
-            let field_type = field_value.field_type.to_python_type();
-            writeln!(s, "    {field_name}: {field_type}")?;
-            if field_value.comments.has_doc() {
-                writeln!(s, "    \"\"\"")?;
-                for comment in field_value.comments.iter_doc() {
-                    writeln!(s, "    {comment}")?;
-                }
-                writeln!(s, "    \"\"\"")?;
-            }
-        }
+        write_fields(&mut s, &self.fields)?;
         writeln!(s, "")?;
+        writeln!(s, "    def get_id(self) -> NodeId:")?;
+        writeln!(s, "        return self.id")?;
+        writeln!(s)?;
+        writeln!(s, "    def set_id(self, id: NodeId) -> None:")?;
+        writeln!(s, "        self.id = id")?;
+        writeln!(s)?;
         writeln!(s, "    def get_type(self) -> NodeType:")?;
         writeln!(s, "        return NodeType.{node_name}")?;
 
@@ -62,22 +57,26 @@ impl<I> CodeGenerator<targets::Python> for NodeExp<I> {
 }
 
 /// Write ./nodes.rs
-pub(super) fn write_nodes_py(new_files: &mut GeneratedCode, schema_folder: &Path) -> GenResult<()> {
+pub(super) fn write_nodes_py<I: Ord>(schema: &Schema<I>, new_files: &mut GeneratedCode, schema_folder: &Path) -> GenResult<()> {
     let node_path = schema_folder.join("node.py");
 
-    let mut node = String::new();
+    let nodes: Vec<_> = schema.nodes()
+        .map(|n| n.name.to_string())
+        .collect();
 
-    writeln!(node, "from typing import TypeVar")?;
-    writeln!(node, "from typed_graph import NodeExt")?;
-    writeln!(node, "from .node_type import NodeType")?;
+    let mut node = String::new();
+    writeln!(node, "from typed_graph import NestedEnum")?;
     writeln!(node, "from .. import imports")?;
-    writeln!(node, "")?;
-    writeln!(node, "class Node(NodeExt[imports.NodeId, NodeType]):")?;
-    writeln!(node, "    def get_id(self) -> imports.NodeId:")?;
-    writeln!(node, "        return self.id")?;
-    writeln!(node, "    ")?;
-    writeln!(node, "    def set_id(self, id: imports.NodeId) -> None:")?;
-    writeln!(node, "        self.id = id")?;
+    writeln!(node, "from .nodes import *")?;
+    writeln!(node)?;
+    writeln!(node, "class Node(NestedEnum):")?;
+    if nodes.is_empty() {
+        writeln!(node, "    pass")?
+    } else {
+        for node_type in nodes {
+            writeln!(node, "    {node_type}: {node_type}")?;
+        }
+    }
 
     new_files.add_content(node_path, node);
 

@@ -1,4 +1,4 @@
-use std::fmt::{Debug, Display};
+use std::fmt::Debug;
 
 use crate::error::{OwnedParserError, ParserError, ParserResult};
 use crate::parsers::ParserSerialize;
@@ -90,7 +90,8 @@ macro_rules! compose_test {
                 let s: String = value.serialize_to_string().unwrap();
                 let input = $crate::InputMarker::new(s.as_str());
                 let input_end = input.get_end();
-                let owned_value: $crate::error::ParserResult<_, $ty> = ParserDeserialize::parse(input);
+                let owned_value: $crate::error::ParserResult<_, $ty> =
+                    ParserDeserialize::parse(input);
 
                 let mut hasher = DefaultHasher::new();
                 if let Ok((_, ref v)) = owned_value {
@@ -135,24 +136,25 @@ macro_rules! compose_test {
 pub use compose_test;
 
 pub fn display_parser_test_debug<I, D>(
-    owned_value: &ParserResult<I, D>, 
-    result: &ParserResult<I, D>, s: &String
-) 
-where
-    I: ToString + PartialEq + Clone, 
+    owned_value: &ParserResult<I, D>,
+    result: &ParserResult<I, D>,
+    s: &String,
+) where
+    I: ToString + PartialEq + Clone,
     D: PartialEq + ParserSerialize + Debug,
-    OwnedParserError: From<ParserError<I>>
+    OwnedParserError: From<ParserError<I>>,
 {
     if owned_value == result {
         return;
     }
 
-    let input_with_linenumbers =  s
+    let input_with_linenumbers = s
         .split('\n')
         .enumerate()
         .map(|(i, line)| format!("{i:>5} | {line}"))
-        .collect::<Vec<_>>().join("\n");
-    
+        .collect::<Vec<_>>()
+        .join("\n");
+
     println!("Source:");
     println!("{input_with_linenumbers}");
 
@@ -168,22 +170,28 @@ where
     }
 }
 
-pub fn display_diff<I0, I1>(left: &I0, right: &I1) 
+pub fn display_diff<I0, I1>(left: &I0, right: &I1)
 where
     I0: Debug + ParserSerialize,
     I1: Debug + ParserSerialize,
 {
     println!();
-        println!("Dif of compose:");
-        let left_s = left.serialize_to_string().unwrap();
-        let right_s = right.serialize_to_string().unwrap();
-        let diff = CodePreview::diff_string(&left_s, &right_s);
-        println!("{diff}");
+    println!("Dif of compose:");
+    let left_s = left.serialize_to_string().unwrap();
+    let right_s = right.serialize_to_string().unwrap();
+    let diff = CodePreview::diff_string(&left_s, &right_s);
+    println!("{diff}");
 
-        println!();
-        println!("Dif of debug:");
-        let left_s: String = format!("{left:?}").split_inclusive(',').map(|line| format!("{line}\n")).collect();
-        let right_s: String = format!("{right:?}").split_inclusive(',').map(|line| format!("{line}\n")).collect();
-        let diff = CodePreview::diff_string(&left_s, &right_s);
-        println!("{diff}");
+    println!();
+    println!("Dif of debug:");
+    let left_s: String = format!("{left:?}")
+        .split_inclusive(',')
+        .map(|line| format!("{line}\n"))
+        .collect();
+    let right_s: String = format!("{right:?}")
+        .split_inclusive(',')
+        .map(|line| format!("{line}\n"))
+        .collect();
+    let diff = CodePreview::diff_string(&left_s, &right_s);
+    println!("{diff}");
 }

@@ -18,7 +18,7 @@ pub trait CodeGenerator<Target> {
 /// This reduces the likelyhood of conflicting writes to files as the files are only written to once
 #[derive(Debug)]
 pub struct GeneratedCode {
-    new_files: HashMap<PathBuf, String>,
+    new_files: HashMap<PathBuf, Option<String>>,
 }
 
 impl GeneratedCode {
@@ -30,27 +30,43 @@ impl GeneratedCode {
 
     pub fn add_content(&mut self, path: PathBuf, content: String) {
         let current_content = self.new_files.entry(path).or_default();
-        *current_content += &content;
+        if let Some(c) = current_content {
+            *c += &content;
+        } else {
+            *current_content = Some(content);
+        }
     }
 
     pub fn create_file(&mut self, path: PathBuf) {
-        self.add_content(path, "".to_string())
+        if !self.new_files.contains_key(&path) {
+            self.new_files.insert(path, None);
+        }
+    }
+
+    pub fn create_file_with_default(&mut self, path: PathBuf, content: String) {
+        if !path.exists() {
+            self.add_content(path, content);
+        }
     }
 
     pub fn append(&mut self, other: GeneratedCode) {
         for (p, c) in other.new_files {
-            self.add_content(p, c);
+            if let Some(content) = c {
+                self.add_content(p, content);
+            } else {
+                self.create_file(p);
+            }
         }
     }
 
     pub fn write_all(&self) -> GenResult<()> {
         for (p, c) in &self.new_files {
-            if c.is_empty() {
+            if let Some(content) = c {
+                write(p, content)?;
+            } else {
                 if !p.exists() {
                     File::create(p)?;
                 }
-            } else {
-                write(p, c)?;
             }
         }
         Ok(())

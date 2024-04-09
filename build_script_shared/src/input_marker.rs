@@ -5,6 +5,8 @@ use std::ops::{Range, RangeFrom, RangeTo};
 
 use crate::code_preview::CodePreview;
 
+// Annoyingly this describes a refence to a String
+// so making parse functions take an actual String is rather difficult
 pub trait InputType:
     Slice<RangeFrom<usize>>
     + Slice<RangeTo<usize>>
@@ -75,6 +77,10 @@ impl<I> InputMarker<I> {
         &self.source_file
     }
 
+    pub fn set_source(&mut self, source_file: String) {
+        self.source_file = source_file;
+    }
+
     pub fn source_offset(&self) -> usize {
         self.start
     }
@@ -83,15 +89,15 @@ impl<I> InputMarker<I> {
         &self.data
     }
 
-    pub fn get_end(&self) -> Self 
+    pub fn get_end(&self) -> Self
     where
-        I: Clone
+        I: Clone,
     {
         InputMarker {
             data: self.data.clone(),
             source_file: self.source_file.clone(),
             start: self.end,
-            end: self.end
+            end: self.end,
         }
     }
 
@@ -108,15 +114,15 @@ impl<I> InputMarker<I> {
         )
     }
 
-    pub fn map<O, F>(self, f: F) -> InputMarker<O> 
+    pub fn map<O, F>(self, f: F) -> InputMarker<O>
     where
-        F: Fn(I) -> O
+        F: Fn(I) -> O,
     {
         InputMarker {
             data: f(self.data),
             source_file: self.source_file.clone(),
             start: self.start,
-            end: self.end
+            end: self.end,
         }
     }
 }
@@ -124,9 +130,17 @@ impl<I> InputMarker<I> {
 impl<I> Debug for InputMarker<I> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.source_file.is_empty() {
-            write!(f, "InputMarker {{ /* InputMarker {} to {} */}} ", self.start, self.end)
+            write!(
+                f,
+                "InputMarker {{ /* InputMarker {} to {} */}} ",
+                self.start, self.end
+            )
         } else {
-            write!(f, "InputMarker {{ /* InputMarker {} to {} from {} */}} ", self.start, self.end, self.source_file)
+            write!(
+                f,
+                "InputMarker {{ /* InputMarker {} to {} from {} */}} ",
+                self.start, self.end, self.source_file
+            )
         }
     }
 }

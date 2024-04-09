@@ -28,10 +28,10 @@ impl Process<ProjectSettings> for Rust {
         if !self.output.is_dir() {
             create_dir_all(&self.output)?;
         }
-        
+
         let project = Project::open_project(&p)?;
         CodeGenerator::<targets::Rust>::write_to_file(&project, &self.output)?;
-        
+
         println!("Done exporting to {:?}", &self.output);
 
         Ok(())

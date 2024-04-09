@@ -1,17 +1,18 @@
 use std::fmt::Display;
 
 use build_script_shared::error::{ComposerResult, ParserResult};
-use build_script_shared::parsers::{ws, ComposeContext, ParserDeserialize, ParserSerialize};
+use build_script_shared::parsers::{ComposeContext, ParserDeserialize, ParserSerialize};
 use build_script_shared::{compose_test, InputType};
 use fake::Dummy;
-use nom::branch::alt;
 use nom::bytes::complete::tag;
 use nom::character::complete::multispace1;
 use nom::combinator::{map, opt};
 use nom::sequence::terminated;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Dummy, Clone, Copy, Serialize, Deserialize)]
+#[derive(
+    Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Dummy, Clone, Copy, Serialize, Deserialize,
+)]
 pub enum Visibility {
     Public,
     Local,
@@ -19,10 +20,12 @@ pub enum Visibility {
 
 impl<I: InputType> ParserDeserialize<I> for Visibility {
     fn parse(s: I) -> ParserResult<I, Self> {
-        ws(map(
-            opt(map(terminated(tag("pub"), multispace1), |_| Visibility::Public)),
+        map(
+            opt(map(terminated(tag("pub"), multispace1), |_| {
+                Visibility::Public
+            })),
             |o| o.unwrap_or_else(|| Visibility::Local),
-        ))(s)
+        )(s)
     }
 }
 

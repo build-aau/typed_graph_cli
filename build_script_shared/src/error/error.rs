@@ -26,8 +26,7 @@ where
 {
     fn from(e: Err<ParserError<I>>) -> Self {
         match e {
-            Err::Error(e) 
-            | Err::Failure(e) => e.into(),
+            Err::Error(e) | Err::Failure(e) => e.into(),
             Err::Incomplete(need) => BUILDScriptError::NomIncompleteError(need),
         }
     }

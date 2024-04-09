@@ -45,8 +45,8 @@ impl Comments {
     }
 
     pub fn strip_comments(&mut self) {
-        self.comments.retain(|comment| matches!(comment, Comment::Doc(_)));
-
+        self.comments
+            .retain(|comment| matches!(comment, Comment::Doc(_)));
     }
 
     /// Create a new Comments only contianing the doc comments
@@ -67,30 +67,23 @@ impl Comments {
             .iter()
             .cloned()
             .filter(|comment| !matches!(comment, Comment::Doc(_)))
-            .chain(
-                other
-                    .get_doc_comments()
-                    .comments
-                    .into_iter()
-            )
+            .chain(other.get_doc_comments().comments.into_iter())
             .collect();
     }
 
     /// Iterate through all the doc comments
     pub fn iter_doc(&self) -> impl Iterator<Item = &String> {
-        self.comments
-            .iter()
-            .filter_map(|comment| if let Comment::Doc(comment) = comment {
+        self.comments.iter().filter_map(|comment| {
+            if let Comment::Doc(comment) = comment {
                 Some(comment)
-            }else {
+            } else {
                 None
-            })
+            }
+        })
     }
 
     pub fn has_doc(&self) -> bool {
-        self.comments
-            .iter()
-            .any(|c| matches!(c, Comment::Doc(_)))
+        self.comments.iter().any(|c| matches!(c, Comment::Doc(_)))
     }
 }
 
@@ -107,7 +100,11 @@ impl<I: InputType> ParserDeserialize<I> for Comments {
 }
 
 impl ParserSerialize for Comments {
-    fn compose<W: std::fmt::Write>(&self, f: &mut W, ctx: ComposeContext) -> crate::error::ComposerResult<()> {
+    fn compose<W: std::fmt::Write>(
+        &self,
+        f: &mut W,
+        ctx: ComposeContext,
+    ) -> crate::error::ComposerResult<()> {
         for comment in &self.comments {
             comment.compose(f, ctx)?;
             writeln!(f, "")?;
@@ -132,7 +129,11 @@ impl<I: InputType> ParserDeserialize<I> for Comment {
 }
 
 impl ParserSerialize for Comment {
-    fn compose<W: std::fmt::Write>(&self, f: &mut W, ctx: ComposeContext) -> crate::error::ComposerResult<()> {
+    fn compose<W: std::fmt::Write>(
+        &self,
+        f: &mut W,
+        ctx: ComposeContext,
+    ) -> crate::error::ComposerResult<()> {
         let indent = ctx.create_indents();
         match self {
             Comment::Doc(s) => write!(f, "{indent}///{}", s),
@@ -231,10 +232,10 @@ impl Dummy<Faker> for Comments {
     fn dummy_with_rng<R: rand::prelude::Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
         let count = rng.gen_range(0..3);
 
-        Comments { 
+        Comments {
             comments: (0..count)
                 .map(|_| Comment::dummy_with_rng(config, rng))
-                .collect()
+                .collect(),
         }
     }
 }

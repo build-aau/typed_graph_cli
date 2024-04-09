@@ -4,7 +4,7 @@ use nom::branch::alt;
 use nom::bytes::complete::*;
 use nom::character::complete::*;
 use nom::combinator::*;
-use nom::error::{context, ContextError, ErrorKind, ParseError};
+use nom::error::{context, ContextError, ParseError};
 use nom::multi::*;
 use nom::sequence::*;
 use nom::{Err, IResult, Parser};
@@ -189,7 +189,7 @@ where
 }
 
 /// Parse a punctuated list of tokens
-/// 
+///
 /// This is most commonly used for a, b, c or a | b | c
 pub fn punctuated<I, O, E, P>(mut p: P, seperator: char) -> impl FnMut(I) -> IResult<I, Vec<O>, E>
 where
@@ -208,8 +208,8 @@ where
 
         // Provide propper error message in case the seperator was missing
         let (s, _) = alt((
-            preceded(peek(ws(&mut p)), cut(char(seperator))), 
-            success(' ')
+            preceded(peek(ws(&mut p)), cut(char(seperator))),
+            success(' '),
         ))(s)?;
         // Remove trailing comma
         let (s, _) = opt(ws(char(seperator)))(s)?;
@@ -273,6 +273,8 @@ fn surrounded_test() {
 
 #[test]
 fn punctuated_test() {
+    use nom::error::ErrorKind;
+
     assert_eq!(
         punctuated(tag("a"), ',')("a,a,a,a,a"),
         IResult::<&str, _>::Ok(("", vec!["a", "a", "a", "a", "a"]))

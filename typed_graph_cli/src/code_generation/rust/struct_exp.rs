@@ -1,12 +1,10 @@
 use build_changeset_lang::{ChangeSet, FieldPath, SingleChange};
-use build_script_lang::schema::{StructExp, Visibility};
-use build_script_shared::parsers::{Generics, Ident, Mark, Types};
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use build_script_lang::schema::StructExp;
 use std::fmt::Write;
 
 use crate::{targets, CodeGenerator, GenResult, GeneratedCode, ToRustType, ToSnakeCase};
 
-use super::{create_generics, get_generic_changes, get_generic_field_type_changes};
+use super::{create_generics, write_comments, write_fields, FieldFormatter};
 
 impl<I> CodeGenerator<targets::Rust> for StructExp<I> {
     fn get_filename(&self) -> String {
@@ -30,53 +28,81 @@ impl<I> CodeGenerator<targets::Rust> for StructExp<I> {
         writeln!(s, "#[allow(unused_imports)]")?;
         writeln!(s, "use super::super::*;")?;
         writeln!(s, "#[allow(unused_imports)]")?;
-        writeln!(s, "use std::collections::HashMap;")?;
+        writeln!(s, "use indexmap::IndexMap;")?;
         writeln!(s, "use serde::{{Serialize, Deserialize}};")?;
         #[cfg(feature = "diff")]
         writeln!(s, "use changesets::Changeset;")?;
 
-        let attributes = vec![
+        let mut derive_traits = vec![
             "Clone".to_string(),
             "Debug".to_string(),
-            "Serialize".to_string(),
-            "Deserialize".to_string(),
             #[cfg(feature = "diff")]
             "Changeset".to_string(),
         ];
-        let attribute_s = attributes.join(", ");
 
-        writeln!(s, "")?;
-        for comment in self.comments.iter_doc() {
-            writeln!(s, "/// {comment}")?;
+        let derive_funcs = self.attributes.get_functions("derive");
+        for derived in derive_funcs {
+            for value in &derived.values {
+                derive_traits.push(value.to_string());
+            }
         }
-        writeln!(s, "#[derive({attribute_s})]")?;
-        write!(s, "pub struct {}", self.name)?;
+        let derive_traits_s = derive_traits.join(", ");
+
+        let mut generics = String::new();
         if !self.generics.generics.is_empty() {
-            write!(s, "<")?;
+            write!(generics, "<")?;
             let mut first = true;
             for generic in &self.generics.generics {
                 if !first {
-                    write!(s, ", ")?;
+                    write!(generics, ", ")?;
                 } else {
                     first = false;
                 }
-                write!(s, "{}", generic.letter)?;
-            } 
-            write!(s, ">")?;
+                write!(generics, "{}", generic.letter)?;
+            }
+            write!(generics, ">")?;
         }
-        writeln!(s, " {{", )?;
+
+        writeln!(s, "")?;
+        write_comments(
+            &mut s, 
+            &self.comments,
+            FieldFormatter {
+                indents: 0,
+                include_visibility: true
+            }
+        )?;
+        writeln!(s, "#[derive({derive_traits_s})]")?;
+        writeln!(s, "pub struct {}{generics} {{", self.name)?;
+        write_fields(
+            &mut s, 
+            &self.fields,
+            FieldFormatter {
+                indents: 1,
+                include_visibility: true
+            }
+        )?;
+        writeln!(s, "}}")?;
+
+        writeln!(s, "")?;
+        writeln!(s, "#[allow(unused)]")?;
+        writeln!(s, "impl{generics} {}{generics} {{", self.name)?;
+        writeln!(s, "    pub fn new(")?;
+        for field_value in self.fields.iter() {
+            let field_type = &field_value.field_type.to_rust_type();
+            let field_name = &field_value.name;
+            writeln!(s, "       {field_name}: {field_type},")?;
+        }
+        writeln!(s, "")?;
+        writeln!(s, "   ) -> Self {{")?;
+        writeln!(s, "        Self {{")?;
         for field_value in self.fields.iter() {
             let field_name = &field_value.name;
-            for comment in field_value.comments.iter_doc() {
-                writeln!(s, "   /// {comment}")?;
-            }
-            let vis = match field_value.visibility {
-                Visibility::Local => "pub(crate) ",
-                Visibility::Public => "pub ",
-            };
-            let field_type = field_value.field_type.to_rust_type();
-            writeln!(s, "   {vis}{field_name}: {field_type},")?;
+            writeln!(s, "           {field_name},")?;
         }
+        writeln!(s, "")?;
+        writeln!(s, "        }}")?;
+        writeln!(s, "    }}")?;
         writeln!(s, "}}")?;
 
         let mut new_files = GeneratedCode::new();
@@ -92,11 +118,15 @@ pub(super) fn write_struct_from<I: Clone + PartialEq + Ord + Default>(
 ) -> GenResult<String> {
     let struct_type = &n.name;
 
-    let (end_bracket, new_type_generics, old_type_generics, impl_generics) = create_generics(&n.name, &n.generics, changeset)?;
+    let (end_bracket, new_type_generics, old_type_generics, impl_generics) =
+        create_generics(&n.name, &n.generics, changeset)?;
 
     let mut s = String::new();
     writeln!(s, "impl{impl_generics} From<{parent_ty}{old_type_generics}> for {struct_type}{new_type_generics} {end_bracket}")?;
-    writeln!(s, "    fn from(other: {parent_ty}{old_type_generics}) -> Self {{")?;
+    writeln!(
+        s,
+        "    fn from(other: {parent_ty}{old_type_generics}) -> Self {{"
+    )?;
     writeln!(s, "       {struct_type} {{")?;
     for field_value in n.fields.iter() {
         let field_name = &field_value.name;

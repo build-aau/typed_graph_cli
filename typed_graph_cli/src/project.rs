@@ -1,24 +1,25 @@
 use build_changeset_lang::{ChangeSet, ChangeSetBuilder, DefaultChangeset};
 use build_script_lang::schema::Schema;
-use build_script_lang::DefaultSchema;
-use build_script_shared::parsers::{Ident, Mark, ParserDeserialize, ParserSerialize};
-use build_script_shared::InputMarker;
-use std::collections::{HashMap, HashSet};
+use build_script_shared::parsers::{
+    Ident, Mark, Marked, ParserDeserialize, ParserDeserializeTo, ParserSerialize,
+};
+use build_script_shared::{BUILDScriptError, InputMarker};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs::{create_dir_all, read_dir, read_to_string, remove_file};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use crate::{GenError, GenResult};
 
 #[derive(Default)]
 pub struct Project {
-    schemas: HashMap<String, Schema<InputMarker<String>>>,
+    schemas: BTreeMap<String, Schema<InputMarker<String>>>,
     changesets: HashMap<u64, ChangeSet<InputMarker<String>>>,
     version_tree: HashMap<String, HashMap<String, (u64, Direction)>>,
     schema_folder: PathBuf,
     changeset_folder: PathBuf,
 }
 
-#[derive(PartialEq, Eq, Hash, Debug, Clone, Copy)]
+#[derive(PartialEq, Eq, Hash, Debug, Clone, Copy, PartialOrd, Ord)]
 pub enum Direction {
     Forward,
     Backwards,
@@ -45,10 +46,10 @@ impl Project {
 
     /// Internal method or opening a project  
     /// check_integrity can be set to run a check if the changesets point to valid schemas
-    /// 
+    ///
     /// A project is made of two parts:
     /// 1. a schema folder holding a number of schemas
-    /// 2. a changeset folder holding a number of changesets between schemas 
+    /// 2. a changeset folder holding a number of changesets between schemas
     fn open(
         schema_folder: PathBuf,
         changeset_folder: PathBuf,
@@ -69,7 +70,10 @@ impl Project {
         Ok(project)
     }
 
-    pub fn remove_changeset(&mut self, changeset_id: u64) -> GenResult<ChangeSet<InputMarker<String>>> {
+    pub fn remove_changeset(
+        &mut self,
+        changeset_id: u64,
+    ) -> GenResult<ChangeSet<InputMarker<String>>> {
         let changeset =
             self.changesets
                 .remove(&changeset_id)
@@ -150,7 +154,7 @@ impl Project {
     /// Get an iterator over the version tree  
     /// The version tree contians both forward and backwards convertions of all chnagesets  
     /// Each entry is on the form (old_version, new_version, changset_id)
-    /// 
+    ///
     /// if dir is provided only changesets in a specific direction is included  
     pub fn iter_version(
         &self,
@@ -174,6 +178,7 @@ impl Project {
         let old_schema = self.get_schema(id)?;
         let mut new_schema = old_schema.clone();
 
+        // Find the new version name
         let name = new_schema.version.to_string();
         let mut new_name = if increment_name {
             Project::increment_name(&name, || "_copy".chars())
@@ -186,7 +191,47 @@ impl Project {
         }
 
         new_schema.version = Ident::new(new_name, Mark::default());
+
         let new_version = new_schema.version.to_string();
+
+        // Update markers to point to new directory
+        let old_path = PathBuf::from(old_schema.marker().get_source());
+        let mut local_path = old_path
+            .strip_prefix(&self.schema_folder)?
+            .components()
+            .peekable();
+
+        // This is either the filename or the folder contianing schema.bs
+        let root_component = local_path.next();
+
+        // Find a replacement prefixes
+        let (old_prefix, new_prefix) = if let Some(Component::Normal(old_version)) = root_component
+        {
+            if local_path.peek().is_none() {
+                // The component must be a .bs file
+                (self.schema_folder.clone(), self.schema_folder.clone())
+            } else {
+                // The component is the folder contianing schema.bs
+                (
+                    self.schema_folder.join(&old_version),
+                    self.schema_folder.join(&new_version),
+                )
+            }
+        } else {
+            // The path is invalid so we just try to make the best of it
+            (self.schema_folder.clone(), self.schema_folder.clone())
+        };
+
+        // Replace the prefix of all markers to the new directory
+        new_schema = new_schema.map(|mut input| {
+            let source: &Path = input.get_source().as_ref();
+            let updated_source =
+                new_prefix.join(source.strip_prefix(&old_prefix).unwrap_or_else(|_| source));
+            let new_source = updated_source.to_str().unwrap_or_default();
+            input.set_source(new_source.to_string());
+            input
+        });
+
         self.add_schema(new_schema.clone())?;
         self.save_schema(&new_version)?;
 
@@ -199,9 +244,7 @@ impl Project {
         F: Fn() -> FR,
         FR: Iterator<Item = char>,
     {
-        let mut chars: Vec<char> = name
-            .chars()
-            .collect();
+        let mut chars: Vec<char> = name.chars().collect();
         let mut num = Vec::new();
 
         // Finds number
@@ -217,7 +260,6 @@ impl Project {
         }
 
         if !num.is_empty() {
-
             let mut overflow = true;
 
             // you could image we had "Hello789"
@@ -248,7 +290,6 @@ impl Project {
             // The resulting is "Hello790" after reinsertion
             num.reverse();
             chars.extend(num);
-
         } else {
             // If no number was found use a default instead
             chars.extend(default());
@@ -291,9 +332,41 @@ impl Project {
     /// Save a schema to a file in the project folder
     pub fn save_schema(&self, schema: &String) -> GenResult<PathBuf> {
         let schema = self.get_schema(schema)?;
-        let p = self.schema_folder.join(format!("{}.bs", schema.version));
-        schema.serialize_to_file(&p)?;
-        Ok(p)
+
+        let mut code_origin = HashMap::new();
+
+        code_origin.insert(
+            schema.marker().get_source(),
+            Schema::new(schema.version.clone(), Vec::new(), schema.marker().clone()),
+        );
+
+        for stm in schema.iter() {
+            let origin = stm.marker().get_source();
+            let origin_entry = code_origin.entry(origin).or_default();
+
+            origin_entry.push(stm.clone());
+        }
+
+        let saved_path = if code_origin.is_empty() {
+            PathBuf::from(schema.marker().get_source())
+        } else {
+            let mut schema_path = PathBuf::from(schema.marker().get_source());
+            schema_path.pop();
+            schema_path
+        };
+
+        for (origin_path, schema) in code_origin {
+            let origin_path = Path::new(origin_path);
+            if !origin_path.exists() {
+                let mut folder_path = origin_path.to_path_buf();
+                folder_path.pop();
+                create_dir_all(folder_path)?;
+            }
+
+            schema.serialize_to_file(origin_path)?;
+        }
+
+        Ok(saved_path)
     }
 
     /// Save a changeset to a file in the project folder
@@ -352,7 +425,7 @@ impl Project {
         let mut schema = self.schemas.remove(old_schema).unwrap();
         schema.version = Ident::new_alone(new_name.clone());
         let new_schema_hash = schema.get_hash();
-        
+
         // Update the schema
         self.schemas.insert(new_name.clone(), schema);
 
@@ -438,7 +511,6 @@ impl Project {
         Ok(())
     }
 
-    
     fn add_changeset(&mut self, changeset: ChangeSet<InputMarker<String>>) -> GenResult<u64> {
         let id = changeset.get_hash();
 
@@ -454,7 +526,8 @@ impl Project {
                 (id, Direction::Backwards),
             );
 
-        let duplicate_key: Option<ChangeSet<InputMarker<String>>> = self.changesets.insert(id, changeset);
+        let duplicate_key: Option<ChangeSet<InputMarker<String>>> =
+            self.changesets.insert(id, changeset);
         if let Some(changeset) = duplicate_key {
             return Err(GenError::DuplicateKeys {
                 kind: "changset".to_string(),
@@ -540,28 +613,108 @@ impl Project {
 
     /// Load all schemas files from a folder
     fn load_schemas<P: AsRef<Path>>(&mut self, schema_folder: P) -> GenResult<()> {
-        let schema_iter = read_dir(schema_folder)?;
-        for schema_file in schema_iter {
-            let schema_path = schema_file?;
-            if let Ok(s) = schema_path.file_name().into_string() {
-                if s.ends_with(".bs") {
-                    let content = read_to_string(schema_path.path())?;
-                    let input = InputMarker::new_from_file(
-                        content.as_str(),
-                        schema_path
-                            .path()
-                            .to_str()
-                            .ok_or_else(|| GenError::MalformedPath)?
-                            .to_string(),
-                    );
-                    let schema = DefaultSchema::deserialize(input)?;
-                    let owned_schema = schema.map(|i| i.map(|data| data.to_string()));
-                    self.add_schema(owned_schema)?;
+        let folder_iter = read_dir(schema_folder)?;
+        for folder_entry in folder_iter {
+            let entry = folder_entry?;
+            self.load_schema(entry.path())?;
+        }
+
+        Ok(())
+    }
+
+    pub fn load_schema<P: AsRef<Path>>(&mut self, p: P) -> GenResult<()> {
+        let path = p.as_ref();
+        if path.is_file() {
+            self.load_schema_from_file(path)?;
+        } else if path.is_dir() {
+            self.load_schema_from_folder(path)?;
+        }
+        Ok(())
+    }
+
+    fn load_schema_from_folder_rec<P: AsRef<Path>>(
+        root: &mut Schema<InputMarker<String>>,
+        schema_folder: P,
+    ) -> GenResult<()> {
+        let folder_iter = read_dir(schema_folder)?;
+        for folder_entry in folder_iter {
+            let entry = folder_entry?;
+            let path = entry.path();
+            let file_type = entry.file_type()?;
+            if file_type.is_file() {
+                // Don't reload the root schema
+                if path.ends_with("schema.bs") {
+                    continue;
                 }
+
+                let new_schema = Project::parse_schema(&path, false, false)?;
+                root.extend(new_schema);
+            } else if file_type.is_dir() {
+                Project::load_schema_from_folder_rec(root, &path)?;
             }
         }
 
         Ok(())
+    }
+
+    fn load_schema_from_folder<P: AsRef<Path>>(&mut self, schema_folder: P) -> GenResult<()> {
+        let path = schema_folder.as_ref();
+        let root_path = path.join("schema.bs");
+        if !root_path.exists() {
+            return Err(GenError::InvalidSchemaPath(root_path));
+        }
+
+        let mut root_schema = Project::parse_schema(root_path, true, false)?;
+        Project::load_schema_from_folder_rec(&mut root_schema, path)?;
+
+        root_schema
+            .check_integrity()
+            .map_err(|e| BUILDScriptError::from(e))?;
+
+        self.add_schema(root_schema)?;
+        Ok(())
+    }
+
+    fn load_schema_from_file<P: AsRef<Path>>(&mut self, schema_file: P) -> GenResult<()> {
+        let path = schema_file.as_ref();
+        let file_name = path
+            .file_name()
+            .ok_or_else(|| GenError::InvalidSchemaPath(path.to_path_buf()))?;
+        if let Some(s) = file_name.to_str() {
+            if s.ends_with(".bs") {
+                let schema = Project::parse_schema(path, true, true)?;
+                self.add_schema(schema)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn parse_schema<P: AsRef<Path>>(
+        schema_path: P,
+        requires_header: bool,
+        requires_integrity: bool,
+    ) -> GenResult<Schema<InputMarker<String>>> {
+        let path = schema_path.as_ref();
+        let content = read_to_string(path)?;
+        let input = InputMarker::new_from_file(
+            content.as_str(),
+            path.to_str()
+                .ok_or_else(|| GenError::InvalidSchemaPath(path.to_path_buf()))?
+                .to_string(),
+        );
+
+        let schema = Schema::parse_no_check(requires_header).deserialize(input)?;
+
+        if requires_integrity {
+            schema
+                .check_integrity()
+                .map_err(|e| BUILDScriptError::from(e))?;
+        }
+
+        let owned_schema = schema.map(|i| i.map(|data| data.to_string()));
+
+        Ok(owned_schema)
     }
 
     /// Load all changeset files from a folder

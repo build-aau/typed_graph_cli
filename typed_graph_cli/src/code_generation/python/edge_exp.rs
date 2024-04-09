@@ -1,10 +1,19 @@
-use build_script_lang::schema::{EdgeExp, Schema};
-use std::collections::{HashMap, HashSet};
+use build_script_lang::schema::{EdgeExp, LowerBound, Schema};
+use std::collections::{BTreeMap, HashSet};
 use std::fmt::{Debug, Write};
-use std::ops::Bound;
 use std::path::Path;
 
-use crate::{targets, CodeGenerator, Direction, GenResult, GeneratedCode, ToPythonType, ToSnakeCase};
+use crate::{
+    targets, CodeGenerator, Direction, GenResult, GeneratedCode, ToSnakeCase,
+};
+
+use super::{write_comments, write_fields};
+
+enum EdgeRepresentation {
+    Result,
+    Option,
+    Iterator
+}
 
 impl<I> CodeGenerator<targets::Python> for EdgeExp<I> {
     fn get_filename(&self) -> String {
@@ -23,34 +32,25 @@ impl<I> CodeGenerator<targets::Python> for EdgeExp<I> {
         let mut s = String::new();
 
         writeln!(s, "from ..edge_type import EdgeType")?;
-        writeln!(s, "from ..edge import Edge")?;
         writeln!(s, "from ..structs import *")?;
         writeln!(s, "from ..types import *")?;
         writeln!(s, "from ..imports import *")?;
         writeln!(s, "from ...imports import *")?;
-        writeln!(s, "from typing import Optional, List, Dict")?;
+        writeln!(s, "from pydantic import Field, AliasChoices")?;
+        writeln!(s, "from typing import Optional, List, Dict, ClassVar")?;
+        writeln!(s, "from typed_graph import EdgeExt")?;
         writeln!(s, "")?;
-        writeln!(s, "class {edge_name}(Edge):")?;
-        if self.comments.has_doc() {
-            writeln!(s, "    \"\"\"")?;
-            for comment in self.comments.iter_doc() {
-                writeln!(s, "    {comment}")?;
-            }
-            writeln!(s, "    \"\"\"")?;
-        }
+        writeln!(s, "class {edge_name}(EdgeExt[EdgeId, EdgeType]):")?;
+        write_comments(&mut s, &self.comments)?;
+        writeln!(s, "    tagging: ClassVar[bool] = False")?;
         writeln!(s, "    id: EdgeId")?;
-        for field_value in self.fields.iter() {
-            let field_name = &field_value.name;
-            let field_type = field_value.field_type.to_python_type();
-            writeln!(s, "     {field_name}: {field_type}")?;
-            if field_value.comments.has_doc() {
-                writeln!(s, "    \"\"\"")?;
-                for comment in field_value.comments.iter_doc() {
-                    writeln!(s, "    {comment}")?;
-                }
-                writeln!(s, "    \"\"\"")?;
-            }
-        }
+        write_fields(&mut s, &self.fields)?;
+        writeln!(s)?;
+        writeln!(s, "    def get_id(self) -> EdgeId:")?;
+        writeln!(s, "        return self.id")?;
+        writeln!(s)?;
+        writeln!(s, "    def set_id(self, id: EdgeId) -> None:")?;
+        writeln!(s, "        self.id = id")?;
         writeln!(s, "")?;
         writeln!(s, "    def get_type(self) -> EdgeType:")?;
         writeln!(s, "        return EdgeType.{edge_name}")?;
@@ -63,21 +63,26 @@ impl<I> CodeGenerator<targets::Python> for EdgeExp<I> {
 }
 
 // Write ./edges.rs
-pub(super) fn write_edges_py(new_files: &mut GeneratedCode, schema_folder: &Path) -> GenResult<()> {
+pub(super) fn write_edges_py<I: Ord>(schema: &Schema<I>, new_files: &mut GeneratedCode, schema_folder: &Path) -> GenResult<()> {
     let edge_path = schema_folder.join("edge.py");
 
-    let mut edge = String::new();
+    let edges: Vec<_> = schema.edges()
+        .map(|n| n.name.to_string())
+        .collect();
 
-    writeln!(edge, "from typed_graph import EdgeExt")?;
+    let mut edge = String::new();
+    writeln!(edge, "from typed_graph import NestedEnum")?;
     writeln!(edge, "from .. import imports")?;
-    writeln!(edge, "from .edge_type import EdgeType")?;
+    writeln!(edge, "from .edges import *")?;
     writeln!(edge, "")?;
-    writeln!(edge, "class Edge(EdgeExt[imports.EdgeId, EdgeType]):")?;
-    writeln!(edge, "    def get_id(self) -> imports.EdgeId:")?;
-    writeln!(edge, "        return self.id")?;
-    writeln!(edge, "    ")?;
-    writeln!(edge, "    def set_id(self, id: imports.EdgeId) -> None:")?;
-    writeln!(edge, "        self.id = id")?;
+    writeln!(edge, "class Edge(NestedEnum):")?;
+    if edges.is_empty() {
+        writeln!(edge, "    pass")?
+    } else {
+        for edge_type in edges {
+            writeln!(edge, "    {edge_type}: {edge_type}")?;
+        }
+    }
 
     new_files.add_content(edge_path.clone(), edge);
 
@@ -114,11 +119,11 @@ pub(super) fn write_edge_type_py<I: Ord>(
 pub(super) fn write_edge_endpoints_py<I: Debug + Ord>(
     schema: &Schema<I>,
     new_file: &mut GeneratedCode,
-    nodes_path: &Path
+    nodes_path: &Path,
 ) -> GenResult<()> {
     let schema_name = schema.version.replace(".", "_");
 
-    let mut edges: HashMap<_, HashMap<_, Vec<_>>> = HashMap::new();
+    let mut edges: BTreeMap<_, BTreeMap<_, Vec<_>>> = BTreeMap::new();
 
     for edge in schema.edges() {
         for ((source, target), endpoint) in &edge.endpoints {
@@ -137,7 +142,7 @@ pub(super) fn write_edge_endpoints_py<I: Debug + Ord>(
         }
     }
 
-    let mut nodes = HashMap::new();
+    let mut nodes = BTreeMap::new();
 
     for node in schema.nodes() {
         nodes.insert(&node.name, node);
@@ -154,8 +159,8 @@ pub(super) fn write_edge_endpoints_py<I: Debug + Ord>(
             // Create maps storing how many types of edges go from and to each node type
             // It is important to use a vector as the same edgetype may be used multiple times
             // This allow the differnet functions to figure out if they can be cast to a specific type safely
-            let mut grouped_by_end: HashMap<_, HashMap<_, Vec<_>>> = HashMap::new();
-            let mut grouped_by_start: HashMap<_, HashMap<_, Vec<_>>> = HashMap::new();
+            let mut grouped_by_end: BTreeMap<_, BTreeMap<_, Vec<_>>> = BTreeMap::new();
+            let mut grouped_by_start: BTreeMap<_, BTreeMap<_, Vec<_>>> = BTreeMap::new();
 
             for (endpoint, edge) in &endpoints {
                 let (start, end) = match dir {
@@ -209,10 +214,10 @@ pub(super) fn write_edge_endpoints_py<I: Debug + Ord>(
                     None
                 };
 
-                let (output_edge_type, is_option) = if let Some(edge) = &only_edge_type {
-                    // There may be multiple endpoint to and from the node
-                    // So the quantity is calculated as the sum of all endpoints
-                    let quantity = edge
+                let mut edge_repr = EdgeRepresentation::Result;
+                
+                for edge in edges {
+                    edge_repr = edge
                         .endpoints
                         .iter()
                         .filter(|(_, endpoint)| match dir {
@@ -223,25 +228,38 @@ pub(super) fn write_edge_endpoints_py<I: Debug + Ord>(
                                 node == &endpoint.target && end == &&endpoint.source
                             }
                         })
-                        .fold(0, |acc, (_, endpoint)| match endpoint.quantity.quantity {
-                            Bound::Included(i) => acc + i,
-                            // If the quantity is < 0 then it is the same as <= 0 or acc + 0 = acc
-                            Bound::Excluded(i) if i == 0 => acc,
-                            Bound::Excluded(i) => acc + i - 1,
-                            Bound::Unbounded => acc + 999,
+                        .map(|(_, endpoint)| match dir {
+                            Direction::Forward => &endpoint.outgoing_quantity,
+                            Direction::Backwards => &endpoint.incoming_quantity,
+                        })
+                        .fold(edge_repr, |repr, quantity| match quantity.bounds {
+                            Some((lower, upper)) => match repr {
+                                EdgeRepresentation::Result => if lower == LowerBound::One && upper == 1 {
+                                    EdgeRepresentation::Result
+                                } else {
+                                    if upper == 1 {
+                                        EdgeRepresentation::Option
+                                    } else {
+                                        EdgeRepresentation::Iterator
+                                    }
+                                }
+                                EdgeRepresentation::Option => if upper == 1 {
+                                    EdgeRepresentation::Option
+                                } else {
+                                    EdgeRepresentation::Iterator
+                                }
+                                EdgeRepresentation::Iterator => EdgeRepresentation::Iterator
+                            },
+                            None => EdgeRepresentation::Iterator,
                         });
+                }
 
-                    (edge.name.to_string(), quantity == 1)
-                } else {
-                    ("Edge".to_string(), false)
-                };
+                let output_edge_type = only_edge_type.map_or_else(|| "Edge".to_string(), |edge| edge.name.to_string());
 
-                let return_type = if is_option {
-                    format!("Optional[Tuple['{output_edge_type}', '{end}']]")
-                } else {
-                    format!(
-                        "Iterable[Tuple['{output_edge_type}', '{end}']]"
-                    )
+                let return_type = match edge_repr {
+                    EdgeRepresentation::Result => format!("Tuple['{output_edge_type}', '{end}']"),
+                    EdgeRepresentation::Option => format!("Optional[Tuple['{output_edge_type}', '{end}']]"),
+                    EdgeRepresentation::Iterator => format!("Iterable[Tuple['{output_edge_type}', '{end}']]"),
                 };
 
                 let rename_attribute = nodes.get(node).and_then(|n| {
@@ -261,12 +279,27 @@ pub(super) fn write_edge_endpoints_py<I: Debug + Ord>(
 
                 // Write get by node type method
                 writeln!(s, "")?;
-                writeln!(s, "    def get_{node_func_name}(self, g: '{schema_name}Graph') -> {return_type}:")?;
+                writeln!(
+                    s,
+                    "    def {node_func_name}(self, g: '{schema_name}Graph') -> {return_type}:"
+                )?;
                 writeln!(s, "        edges = g.get_{search_dir}_filter(self.get_id(), lambda e: e.get_type() in [{edge_types_patterns}])")?;
-                writeln!(s, "        nodes = map(lambda e: (e.weight, g.get_node(e.get_outer())), edges)")?;
-                writeln!(s, "        nodes = filter(lambda ne: ne[1].get_type() == NodeType.{end}, nodes)")?;
-                if is_option {
-                    writeln!(s, "        nodes = next(nodes)")?;
+                writeln!(
+                    s,
+                    "        nodes = map(lambda e: (e.weight, g.get_node(e.get_outer())), edges)"
+                )?;
+                writeln!(
+                    s,
+                    "        nodes = filter(lambda ne: ne[1].get_type() == NodeType.{end}, nodes)"
+                )?;
+                match edge_repr {
+                    EdgeRepresentation::Iterator => (),
+                    EdgeRepresentation::Option => writeln!(s, "        nodes = next(nodes, None)")?,
+                    EdgeRepresentation::Result => {
+                        writeln!(s, "        nodes = next(nodes, None)")?;
+                        writeln!(s, "        if nodes is None:")?;
+                        writeln!(s, "            raise RecievedNoneValue(f'{{self.get_id()}}({{self.get_type()}})', '{node_func_name}')")?;
+                    },
                 }
                 writeln!(s, "        return nodes")?;
             }
@@ -316,29 +349,54 @@ pub(super) fn write_edge_endpoints_py<I: Debug + Ord>(
                     // Write get by edge type method
                     writeln!(s, "")?;
                     writeln!(s, "    def get_{edge_func_name}(self, g: '{schema_name}Graph') -> Iterable[Tuple['{edge_type}', 'Node']]:")?;
-                    writeln!(s, "       edges = g.get_{search_dir}_filter(self.get_id(), lambda e: e.get_type() == EdgeType.{edge_type})")?;
-                    writeln!(s, "       nodes = map(lambda e: (e.weight, g.get_node(e.get_outer())), edges)")?;
-                    writeln!(s, "       return nodes")?;
+                    writeln!(s, "        edges = g.get_{search_dir}_filter(self.get_id(), lambda e: e.get_type() == EdgeType.{edge_type})")?;
+                    writeln!(s, "        nodes = map(lambda e: (e.weight, g.get_node(e.get_outer())), edges)")?;
+                    writeln!(s, "        return nodes")?;
 
                 // If there are no other edges we can safely cast the node to a specific type
                 } else {
-                    let is_option = endpoint.quantity.quantity == Bound::Included(1)
-                        || endpoint.quantity.quantity == Bound::Excluded(2);
-                    let return_type = if is_option {
-                        format!("Optional[Tuple['{edge_type}', '{target_type}']]")
-                    } else {
-                        format!("Iterable[Tuple['{edge_type}', '{target_type}']]")
+                    let quantity = match dir {
+                        Direction::Forward => &endpoint.outgoing_quantity.bounds,
+                        Direction::Backwards => &endpoint.incoming_quantity.bounds,
+                    };
+
+                    let edge_repr = match quantity {
+                        None => EdgeRepresentation::Iterator,
+                        Some((lower, upper)) => match lower {
+                            LowerBound::Zero => if *upper == 1 {
+                                EdgeRepresentation::Option
+                            } else {
+                                EdgeRepresentation::Iterator
+                            },
+                            LowerBound::One => if *upper == 1 {
+                                EdgeRepresentation::Result
+                            } else {
+                                EdgeRepresentation::Iterator
+                            }
+                        }
+                    };
+
+                    let return_type = match edge_repr {
+                        EdgeRepresentation::Iterator => format!("Iterable[Tuple['{edge_type}', '{target_type}']]"),
+                        EdgeRepresentation::Option => format!("Optional[Tuple['{edge_type}', '{target_type}']]"),
+                        EdgeRepresentation::Result => format!("Tuple['{edge_type}', '{target_type}']")
                     };
 
                     // Write get by edge type method
                     writeln!(s, "")?;
-                    writeln!(s, "    def get_{edge_func_name}(self, g: '{schema_name}Graph') -> {return_type}:")?;
-                    writeln!(s, "       edges = g.get_{search_dir}_filter(self.get_id(), lambda e: e.get_type() == EdgeType.{edge_type})")?;
-                    writeln!(s, "       nodes = map(lambda e: (e.weight, g.get_node(e.get_outer())), edges)")?;
-                    if is_option {
-                        writeln!(s, "       nodes = next(nodes)")?;
+                    writeln!(s, "    def {edge_func_name}(self, g: '{schema_name}Graph') -> {return_type}:")?;
+                    writeln!(s, "        edges = g.get_{search_dir}_filter(self.get_id(), lambda e: e.get_type() == EdgeType.{edge_type})")?;
+                    writeln!(s, "        nodes = map(lambda e: (e.weight, g.get_node(e.get_outer())), edges)")?;
+                    match edge_repr {
+                        EdgeRepresentation::Iterator => (),
+                        EdgeRepresentation::Option => writeln!(s, "        nodes = next(nodes, None)")?,
+                        EdgeRepresentation::Result => {
+                            writeln!(s, "        nodes = next(nodes, None)")?;
+                            writeln!(s, "        if nodes is None:")?;
+                            writeln!(s, "            raise RecievedNoneValue(f'{{self.get_id()}}({{self.get_type()}})', '{edge_func_name}')")?;
+                        },
                     }
-                    writeln!(s, "       return nodes")?;
+                    writeln!(s, "        return nodes")?;
                 }
             }
 
@@ -377,28 +435,56 @@ pub(super) fn write_edge_endpoints_py<I: Debug + Ord>(
                         dir,
                     ));
                 }
+                
+                let quantity = match dir {
+                    Direction::Forward => &endpoint.outgoing_quantity.bounds,
+                    Direction::Backwards => &endpoint.incoming_quantity.bounds,
+                };
 
-                // Check if the result can be
-                let is_option = endpoint.quantity.quantity == Bound::Included(1)
-                    || endpoint.quantity.quantity == Bound::Excluded(2);
-                let return_type = if is_option {
-                    format!("Optional[Tuple['{edge_type}', '{target_type}']]")
-                } else {
-                    format!(
-                        "Iterable[Tuple['{edge_type}', '{target_type}']]"
-                    )
+                let edge_repr = match quantity {
+                    None => EdgeRepresentation::Iterator,
+                    Some((lower, upper)) => match lower {
+                        LowerBound::Zero => if *upper == 1 {
+                            EdgeRepresentation::Option
+                        } else {
+                            EdgeRepresentation::Iterator
+                        },
+                        LowerBound::One => if *upper == 1 {
+                            EdgeRepresentation::Result
+                        } else {
+                            EdgeRepresentation::Iterator
+                        }
+                    }
+                };
+
+                let return_type = match edge_repr {
+                    EdgeRepresentation::Iterator => format!("Iterable[Tuple['{edge_type}', '{target_type}']]"),
+                    EdgeRepresentation::Option => format!("Optional[Tuple['{edge_type}', '{target_type}']]"),
+                    EdgeRepresentation::Result => format!("Tuple['{edge_type}', '{target_type}']")
                 };
 
                 // Write get by edge type method
                 writeln!(s, "")?;
-                writeln!(s, "    def get_{edge_func_name}(self, g: '{schema_name}Graph') -> {return_type}:")?;
-                writeln!(s, "       edges = g.get_{search_dir}_filter(self.get_id(), lambda e: e.get_type() == EdgeType.{edge_type})")?;
-                writeln!(s, "       nodes = map(lambda e: (e.weight, g.get_node(e.get_outer())), edges)")?;
-                writeln!(s, "       nodes = filter(lambda ne: ne[1].get_type() == NodeType.{target_type}, nodes)")?;
-                if is_option {
-                    writeln!(s, "       nodes = next(nodes)")?;
+                writeln!(
+                    s,
+                    "    def {edge_func_name}(self, g: '{schema_name}Graph') -> {return_type}:"
+                )?;
+                writeln!(s, "        edges = g.get_{search_dir}_filter(self.get_id(), lambda e: e.get_type() == EdgeType.{edge_type})")?;
+                writeln!(
+                    s,
+                    "        nodes = map(lambda e: (e.weight, g.get_node(e.get_outer())), edges)"
+                )?;
+                writeln!(s, "        nodes = filter(lambda ne: ne[1].get_type() == NodeType.{target_type}, nodes)")?;
+                match edge_repr {
+                    EdgeRepresentation::Iterator => (),
+                    EdgeRepresentation::Option => writeln!(s, "        nodes = next(nodes, None)")?,
+                    EdgeRepresentation::Result => {
+                        writeln!(s, "        nodes = next(nodes, None)")?;
+                        writeln!(s, "        if nodes is None:")?;
+                        writeln!(s, "            raise RecievedNoneValue(f'{{self.get_id()}}({{self.get_type()}})', '{edge_func_name}')")?;
+                    },
                 }
-                writeln!(s, "       return nodes")?;
+                writeln!(s, "        return nodes")?;
             }
         }
 

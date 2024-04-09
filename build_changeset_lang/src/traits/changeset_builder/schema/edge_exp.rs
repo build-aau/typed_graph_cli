@@ -1,16 +1,6 @@
-use std::collections::hash_map::DefaultHasher;
+use build_script_lang::schema::{EdgeExp, SchemaStmType};
 use std::collections::HashSet;
 use std::fmt::Debug;
-
-use build_script_lang::schema::EdgeExp;
-use build_script_lang::schema::Schema;
-use build_script_lang::schema::SchemaStm;
-use build_script_lang::schema::SchemaStmType;
-use build_script_shared::CodePreview;
-use build_script_shared::InputMarker;
-use fake::Dummy;
-use fake::Fake;
-use build_script_shared::parsers::ParserSerialize;
 
 use crate::schema::*;
 use crate::traits::ChangeSetBuilder;
@@ -68,7 +58,8 @@ where
             let old_endpoint = self.endpoints.get(&key).unwrap();
             let new_endpoint = new_version.endpoints.get(&key).unwrap();
 
-            if old_endpoint.quantity != new_endpoint.quantity
+            if old_endpoint.incoming_quantity != new_endpoint.incoming_quantity
+                || old_endpoint.outgoing_quantity != new_endpoint.outgoing_quantity
                 || old_endpoint.attributes != new_endpoint.attributes
             {
                 changes.push(SingleChange::EditedEndpoint(EditedEndpoint {

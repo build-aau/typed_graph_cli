@@ -1,13 +1,9 @@
-use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 
 use build_script_lang::schema::*;
-use build_script_shared::CodePreview;
-use fake::{Faker, Fake};
-use nom::{Err, Offset};
-use std::hash::{Hash, Hasher};
-use build_script_shared::parsers::{Mark, ParserSerialize};
+use nom::Err;
+use std::hash::Hash;
 
 use crate::schema::*;
 use crate::traits::ChangeSetBuilder;
@@ -31,13 +27,13 @@ where
         }
 
         let mut old_types = HashMap::new();
-        for stm in &self.content {
+        for stm in self.iter() {
             let type_name = stm.get_type();
             old_types.insert(type_name, stm);
         }
 
         let mut new_types = HashMap::new();
-        for stm in &new_version.content {
+        for stm in new_version.iter() {
             let type_name = stm.get_type();
             new_types.insert(type_name, stm);
         }
@@ -156,29 +152,29 @@ where
             if let SingleChange::EditedFieldType(edit) = change {
                 field_path = Some(&edit.field_path);
             }
-            let field_path_str = field_path.map_or_else(|| format!("<Missing path>"), |path| path.to_string());
+            let field_path_str =
+                field_path.map_or_else(|| format!("<Missing path>"), |path| path.to_string());
 
-            let res = change.check_convertions();
+            let res = change.check_convertion_res();
             if let Err(nom_err) = res {
                 return match nom_err {
-                    Err::Failure(parser_err)
-                    | Err::Error(parser_err) => if let Some((_, e)) = parser_err.errors.get(0) {
-                        
-                        Err(ChangeSetError::InvalidTypeMigration {
-                            old_version: changes.old_version.to_string(),
-                            new_version: changes.new_version.to_string(),
-                            reason: format!("{e}"),
-                            path: field_path_str,
-                        })
-                    } else {
-                        
-                        Err(ChangeSetError::InvalidTypeMigration {
-                            old_version: changes.old_version.to_string(),
-                            new_version: changes.new_version.to_string(),
-                            reason: format!("Recieved no error information"),
-                            path: field_path_str,
-                        })
-                    },
+                    Err::Failure(parser_err) | Err::Error(parser_err) => {
+                        if let Some((_, e)) = parser_err.errors.get(0) {
+                            Err(ChangeSetError::InvalidTypeMigration {
+                                old_version: changes.old_version.to_string(),
+                                new_version: changes.new_version.to_string(),
+                                reason: format!("{e}"),
+                                path: field_path_str,
+                            })
+                        } else {
+                            Err(ChangeSetError::InvalidTypeMigration {
+                                old_version: changes.old_version.to_string(),
+                                new_version: changes.new_version.to_string(),
+                                reason: format!("Recieved no error information"),
+                                path: field_path_str,
+                            })
+                        }
+                    }
                     Err::Incomplete(needed) => Err(ChangeSetError::InvalidTypeMigration {
                         old_version: changes.old_version.to_string(),
                         new_version: changes.new_version.to_string(),
@@ -188,7 +184,6 @@ where
                 };
             }
         }
-
 
         Ok(changes)
     }

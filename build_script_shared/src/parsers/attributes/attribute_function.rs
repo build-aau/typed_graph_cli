@@ -7,7 +7,6 @@ use nom::error::context;
 use nom::sequence::*;
 use rand::seq::SliceRandom;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 use std::hash::Hash;
 
 #[derive(Debug, Clone, PartialOrd, Ord, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -20,11 +19,7 @@ pub struct AttributeFunction<I> {
 }
 
 impl<I> AttributeFunction<I> {
-    pub fn new(
-        key: Ident<I>,
-        values: Vec<Ident<I>>,
-        mark: Mark<I>,
-    ) -> AttributeFunction<I> {
+    pub fn new(key: Ident<I>, values: Vec<Ident<I>>, mark: Mark<I>) -> AttributeFunction<I> {
         AttributeFunction { key, values, mark }
     }
 
@@ -35,10 +30,7 @@ impl<I> AttributeFunction<I> {
     {
         AttributeFunction {
             key: self.key.map(f),
-            values: self.values
-                .into_iter()
-                .map(|a| a.map(f))
-                .collect(),
+            values: self.values.into_iter().map(|a| a.map(f)).collect(),
             mark: self.mark.map(f),
         }
     }
@@ -54,19 +46,16 @@ impl<I: InputType> ParserDeserialize<I> for AttributeFunction<I> {
             )),
         )(s)?;
 
-        Ok((
-            s,
-            AttributeFunction {
-                key,
-                values,
-                mark,
-            },
-        ))
+        Ok((s, AttributeFunction { key, values, mark }))
     }
 }
 
 impl<I> ParserSerialize for AttributeFunction<I> {
-    fn compose<W: std::fmt::Write>(&self, f: &mut W, ctx: ComposeContext) -> crate::error::ComposerResult<()> {
+    fn compose<W: std::fmt::Write>(
+        &self,
+        f: &mut W,
+        ctx: ComposeContext,
+    ) -> crate::error::ComposerResult<()> {
         write!(f, "{}(", self.key)?;
         let mut first = true;
         for value in &self.values {
@@ -101,13 +90,13 @@ impl<I: Dummy<Faker>> Dummy<Faker> for AttributeFunction<I> {
     }
 }
 
-pub struct AllowedFunctionAttribute(pub &'static [(&'static str, usize)]);
+pub struct AllowedFunctionAttribute(pub &'static [(&'static str, Option<usize>)]);
 impl<I: Dummy<Faker>> Dummy<AllowedFunctionAttribute> for AttributeFunction<I> {
     fn dummy_with_rng<R: Rng + ?Sized>(config: &AllowedFunctionAttribute, rng: &mut R) -> Self {
         let (key, len) = config.0.choose(rng).unwrap();
         AttributeFunction {
             key: Ident::new(key.to_string(), Faker.fake_with_rng(rng)),
-            values: (0..*len)
+            values: (0..len.unwrap_or_else(|| 5))
                 .map(|_| SimpleIdentDummy.fake_with_rng(rng))
                 .collect(),
             mark: Faker.fake_with_rng(rng),

@@ -5,7 +5,7 @@ use std::fmt::Write;
 
 use crate::{targets, CodeGenerator, GenResult, GeneratedCode, ToRustType, ToSnakeCase};
 
-use super::create_generics;
+use super::{create_generics, write_comments, write_fields, FieldFormatter};
 
 impl<I> CodeGenerator<targets::Rust> for EnumExp<I> {
     fn get_filename(&self) -> String {
@@ -25,19 +25,38 @@ impl<I> CodeGenerator<targets::Rust> for EnumExp<I> {
         let mut s = String::new();
         writeln!(s, "#[allow(unused_imports)]")?;
         writeln!(s, "use super::super::*;")?;
-        writeln!(s, "use serde::{{Serialize, Deserialize}};")?;
+        writeln!(s, "#[allow(unused_imports)]")?;
+        writeln!(s, "use serde::{{Serialize, Deserialize, self}};")?;
         #[cfg(feature = "diff")]
         writeln!(s, "use changesets::Changeset;")?;
+        writeln!(s, "#[allow(unused_imports)]")?;
+        writeln!(s, "use indexmap::IndexMap;")?;
 
-        let attributes = vec![
+        let mut derive_traits = vec![
             "Clone".to_string(),
             "Debug".to_string(),
-            "Serialize".to_string(),
-            "Deserialize".to_string(),
             #[cfg(feature = "diff")]
             "Changeset".to_string(),
         ];
-        let attribute_s = attributes.join(", ");
+
+        if self.is_only_units() {
+            derive_traits.push("Copy".to_string());
+            derive_traits.push("Serialize".to_string());
+            derive_traits.push("Deserialize".to_string());
+            derive_traits.push("PartialEq".to_string());
+            derive_traits.push("Eq".to_string());
+            derive_traits.push("PartialOrd".to_string());
+            derive_traits.push("Ord".to_string());
+            derive_traits.push("Hash".to_string());
+        }
+
+        let derive_funcs = self.attributes.get_functions("derive");
+        for derived in derive_funcs {
+            for value in &derived.values {
+                derive_traits.push(value.to_string());
+            }
+        }
+        let derive_traits_s = derive_traits.join(", ");
 
         let generics = if !self.generics.generics.is_empty() {
             let mut generics = String::new();
@@ -51,7 +70,7 @@ impl<I> CodeGenerator<targets::Rust> for EnumExp<I> {
                     first = false;
                 }
                 write!(generics, "{}", generic.letter)?;
-            } 
+            }
             write!(generics, ">")?;
             generics
         } else {
@@ -59,50 +78,127 @@ impl<I> CodeGenerator<targets::Rust> for EnumExp<I> {
         };
 
         writeln!(s, "")?;
-        for comment in self.comments.iter_doc() {
-            writeln!(s, "   /// {comment}")?;
+        write_comments(&mut s, &self.comments, Default::default())?;
+        
+        writeln!(s, "#[derive({derive_traits_s})]")?;
+        if self.attributes.is_untagged() {
+            writeln!(s, "#[serde(untagged)]")?;
         }
-        writeln!(s, "#[derive({attribute_s})]")?;
-        writeln!(s, "pub enum {enum_name}{generics} {{", )?;
+        writeln!(s, "pub enum {enum_name}{generics} {{",)?;
         for varient in &self.varients {
             match varient {
-                EnumVarient::Struct { 
+                EnumVarient::Struct {
+                    name,
+                    comments,
+                    fields,
+                    attributes,
+                    ..
+                } => {
+                    write_comments(&mut s, comments, FieldFormatter {
+                        indents: 1,
+                        include_visibility: false
+                    })?;
+
+                    if attributes.is_skipped() {
+                        writeln!(s, "    #[serde(skip)]")?;
+                    }
+                    
+                    if attributes.is_untagged() {
+                        writeln!(s, "    #[serde(untagged)]")?;
+                    }
+
+                    let alias_attributes = attributes.get_alias();
+                    if !alias_attributes.is_empty() {
+                        let alias_literals = alias_attributes
+                            .into_iter()
+                            .map(|i| format!("alias=\"{i}\""))
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        writeln!(s, "    #[serde({alias_literals})]")?;
+                    }
+
+                    writeln!(s, "    {name} {{")?;
+                    write_fields(
+                        &mut s, 
+                        fields,
+                        FieldFormatter {
+                            indents: 2,
+                            include_visibility: false
+                        }
+                    )?;
+                    writeln!(s, "    }},")?;
+                }
+                EnumVarient::Opaque { 
                     name, 
                     comments, 
-                    fields, 
-                    .. 
-                } => {
-                    for comment in comments.iter_doc() {
-                        writeln!(s, "    /// {comment}")?;
-                    }
-                    writeln!(s, "    {name} {{")?;
-                    for field_value in fields.iter() {
-                        let field_name = &field_value.name;
+                    attributes,
+                    ty,
+                    .. } => {
 
-                        for comment in field_value.comments.iter_doc() {
-                            writeln!(s, "        /// {comment}")?;
-                        }
+                    let field_type = ty.to_rust_type();
+                    write_comments(&mut s, comments, FieldFormatter {
+                        indents: 1,
+                        include_visibility: false
+                    })?;
 
-                        let field_type = field_value.field_type.to_rust_type();
-                        writeln!(s, "        {field_name}: {field_type},")?;
+                    if attributes.is_skipped() {
+                        writeln!(s, "    #[serde(skip)]")?;
                     }
-                    writeln!(s, "    }},")?;
+                    
+                    if attributes.is_untagged() {
+                        writeln!(s, "    #[serde(untagged)]")?;
+                    }
+
+                    let alias_attributes = attributes.get_alias();
+                    if !alias_attributes.is_empty() {
+                        let alias_literals = alias_attributes
+                            .into_iter()
+                            .map(|i| format!("alias=\"{i}\""))
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        writeln!(s, "    #[serde({alias_literals})]")?;
+                    }
+
+                    writeln!(s, "    {name} ({field_type}),")?;
                 }
                 EnumVarient::Unit { 
                     name, 
                     comments, 
-                    .. 
-                } => {
-                    for comment in comments.iter_doc() {
-                        writeln!(s, "    /// {comment}")?;
+                    attributes,
+                    .. } => {
+                    write_comments(&mut s, comments, FieldFormatter {
+                        indents: 1,
+                        include_visibility: false
+                    })?;
+
+                    if attributes.is_skipped() {
+                        writeln!(s, "    #[serde(skip)]")?;
                     }
+                    
+                    if attributes.is_untagged() {
+                        writeln!(s, "    #[serde(untagged)]")?;
+                    }
+
+                    let alias_attributes = attributes.get_alias();
+                    if !alias_attributes.is_empty() {
+                        let alias_literals = alias_attributes
+                            .into_iter()
+                            .map(|i| format!("alias=\"{i}\""))
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        writeln!(s, "    #[serde({alias_literals})]")?;
+                    }
+
                     writeln!(s, "    {name},")?;
                 }
             }
         }
         writeln!(s, "}}")?;
         writeln!(s, "")?;
-        writeln!(s, "impl{generics} std::fmt::Display for {enum_name}{generics} {{")?;
+        writeln!(
+            s,
+            "impl{generics} std::fmt::Display for {enum_name}{generics} {{"
+        )?;
         writeln!(
             s,
             "    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {{"
@@ -117,7 +213,13 @@ impl<I> CodeGenerator<targets::Rust> for EnumExp<I> {
                         s,
                         "            {enum_name}::{name}{{ .. }} => write!(f, \"{name}\"),"
                     )?;
-                },
+                }
+                EnumVarient::Opaque { .. } => {
+                    writeln!(
+                        s,
+                        "            {enum_name}::{name}(_) => write!(f, \"{name}\"),"
+                    )?;
+                }
                 EnumVarient::Unit { .. } => {
                     writeln!(
                         s,
@@ -141,14 +243,18 @@ pub(super) fn write_type_from<I: Clone + PartialEq + Ord + Default>(
     changeset: &ChangeSet<I>,
     parent_ty: &String,
 ) -> GenResult<String> {
-    let (end_bracket, new_type_generics, old_type_generics, impl_generics) = create_generics(&t.name, &t.generics, changeset)?;
+    let (end_bracket, new_type_generics, old_type_generics, impl_generics) =
+        create_generics(&t.name, &t.generics, changeset)?;
 
     // writeln!(s, "impl{impl_generics} From<{parent_ty}{old_type_generics}> for {struct_type}{new_type_generics} {end_bracket}")?;
 
     let enum_name = &t.name;
     let mut s = String::new();
     writeln!(s, "impl{impl_generics} From<{parent_ty}{old_type_generics}> for Option<{enum_name}{new_type_generics}> {end_bracket}")?;
-    writeln!(s, "    fn from(other: {parent_ty}{old_type_generics}) -> Self {{")?;
+    writeln!(
+        s,
+        "    fn from(other: {parent_ty}{old_type_generics}) -> Self {{"
+    )?;
     writeln!(s, "        match other {{")?;
 
     for varient in &t.varients {
@@ -162,17 +268,22 @@ pub(super) fn write_type_from<I: Clone + PartialEq + Ord + Default>(
         if !is_new {
             match varient {
                 EnumVarient::Struct { name, fields, .. } => {
-
                     // Figure out which fields exists both in the new and old version of the varient
                     let persistent_fields: HashSet<_> = fields
                         .iter()
                         .filter(|field_value| {
                             let field_name = &field_value.name;
-                            let field_path = FieldPath::new_path(enum_name.clone(), vec![name.clone(), (*field_name).clone()]);
+                            let field_path = FieldPath::new_path(
+                                enum_name.clone(),
+                                vec![name.clone(), (*field_name).clone()],
+                            );
                             let changes = changeset.get_changes(field_path);
-                            let is_removed = changes
-                                .iter()
-                                .any(|c| matches!(c, SingleChange::AddedField(_) | SingleChange::RemovedField(_)));
+                            let is_removed = changes.iter().any(|c| {
+                                matches!(
+                                    c,
+                                    SingleChange::AddedField(_) | SingleChange::RemovedField(_)
+                                )
+                            });
                             !is_removed
                         })
                         .map(|field_value| &field_value.name)
@@ -187,10 +298,7 @@ pub(super) fn write_type_from<I: Clone + PartialEq + Ord + Default>(
                         }
                     }
                     writeln!(s, "                   ..")?;
-                    writeln!(
-                        s,
-                        "               }} => Some({enum_name}::{name} {{"
-                    )?;
+                    writeln!(s, "               }} => Some({enum_name}::{name} {{")?;
                     for field_value in fields.iter() {
                         let field_name = &field_value.name;
                         if persistent_fields.contains(field_name) {
@@ -200,6 +308,12 @@ pub(super) fn write_type_from<I: Clone + PartialEq + Ord + Default>(
                         }
                     }
                     writeln!(s, "               }}),")?;
+                }
+                EnumVarient::Opaque { name, .. } => {
+                    writeln!(
+                        s,
+                        "               {parent_ty}::{name}(ty) => Some({enum_name}::{name}(ty.into())),"
+                    )?;
                 }
                 EnumVarient::Unit { name, .. } => {
                     writeln!(

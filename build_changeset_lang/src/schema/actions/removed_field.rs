@@ -31,12 +31,12 @@ impl<I> RemovedField<I> {
 
     pub fn apply(&self, schema: &mut Schema<I>) -> ChangeSetResult<()>
     where
-        I: Default + Clone + PartialEq,
+        I: Default + Clone + PartialEq + Ord,
     {
         let named_fields = self.field_path.retrieve_field(schema)?;
 
         let named_key = self.field_path.get_field_name_res()?;
-        
+
         let removed = named_fields.remove_field(named_key);
         let is_removed = removed.is_some();
 
@@ -66,7 +66,7 @@ impl<I> ParserSerialize for RemovedField<I> {
     fn compose<W: std::fmt::Write>(
         &self,
         f: &mut W,
-        ctx: ComposeContext
+        ctx: ComposeContext,
     ) -> build_script_shared::error::ComposerResult<()> {
         let indents = ctx.create_indents();
         let new_ctx = ctx.set_indents(0);

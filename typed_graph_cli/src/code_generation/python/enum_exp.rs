@@ -1,7 +1,9 @@
 use build_script_lang::schema::{EnumExp, EnumVarient};
 use std::fmt::Write;
 
-use crate::{targets, CodeGenerator, GeneratedCode, ToDefaultPythonValue, ToPythonType, ToSnakeCase};
+use crate::{
+    targets, CodeGenerator, GeneratedCode, ToDefaultPythonValue, ToPythonType, ToSnakeCase,
+};
 
 use super::write_comments;
 
@@ -25,13 +27,14 @@ impl<I> CodeGenerator<targets::Python> for EnumExp<I> {
         writeln!(s, "from typed_graph import NestedEnum")?;
         writeln!(
             s,
-            "from typing import Optional, List, Dict, TypeVar, Generic, ClassVar, Annotated"
+            "from typing import Optional, List, Set, Dict, TypeVar, Generic, ClassVar, Annotated"
         )?;
         writeln!(s, "from pydantic import Field, AliasChoices")?;
         writeln!(s, "from ..types import *")?;
         writeln!(s, "from ..structs import *")?;
         writeln!(s, "from ...imports import *")?;
         writeln!(s, "from ..imports import *")?;
+        writeln!(s, "from typing import Literal")?;
         writeln!(s)?;
 
         for generic in &self.generics.generics {
@@ -51,17 +54,20 @@ impl<I> CodeGenerator<targets::Python> for EnumExp<I> {
         if generic_refs.is_empty() {
             writeln!(s, "class {enum_name}(NestedEnum):")?;
         } else {
-            writeln!(s, "class {enum_name}(NestedEnum[{generic_refs}], Generic[{generic_refs}]):")?;
+            writeln!(
+                s,
+                "class {enum_name}(NestedEnum[{generic_refs}], Generic[{generic_refs}]):"
+            )?;
         }
 
         write_comments(&mut s, &self.comments)?;
 
         if self.attributes.is_untagged() {
-            writeln!(s, "     tagging: ClassVar[bool] = False")?;
+            writeln!(s, "    tagging: ClassVar[bool] = False")?;
         }
 
         if self.varients.is_empty() {
-            write!(s, "     pass")?;
+            write!(s, "    pass")?;
         }
 
         for varient in &self.varients {
@@ -69,16 +75,16 @@ impl<I> CodeGenerator<targets::Python> for EnumExp<I> {
             let comments = varient.comments();
             match varient {
                 EnumVarient::Struct { fields, .. } => {
-                    writeln!(s, "     {name}: {{")?;
-                    
+                    writeln!(s, "    {name} = {{")?;
+
                     if varient.attributes().is_untagged() {
-                        writeln!(s, "          'tagging': Annotated[ClassVar[bool], False],")?;
+                        writeln!(s, "         'tagging': Annotated[ClassVar[bool], False],")?;
                     }
 
                     for field_value in fields.iter() {
                         let field_name = &field_value.name;
                         let field_type = field_value.field_type.to_python_type();
-                        
+
                         let mut field_attributes = Vec::new();
 
                         // Handle skipped
@@ -97,16 +103,22 @@ impl<I> CodeGenerator<targets::Python> for EnumExp<I> {
                                 .map(|i| format!("'{i}'"))
                                 .collect::<Vec<_>>()
                                 .join(", ");
-                            field_attributes.push(format!("validation_alias=AliasChoices('{field_name}', {alias_literals})"));
+                            field_attributes.push(format!(
+                                "validation_alias=AliasChoices('{field_name}', {alias_literals})"
+                            ));
                         }
-                        
+
                         if !field_attributes.is_empty() {
-                            writeln!(s, "          '{field_name}': Annotated[{field_type}, Field({})],", field_attributes.join(", "))?;
+                            writeln!(
+                                s,
+                                "         '{field_name}': Annotated[{field_type}, Field({})],",
+                                field_attributes.join(", ")
+                            )?;
                         } else {
-                            writeln!(s, "          '{field_name}': {field_type},")?;
+                            writeln!(s, "         '{field_name}': {field_type},")?;
                         }
                     }
-                    write!(s, "     }}")?;
+                    write!(s, "    }}")?;
 
                     let mut enum_attributes = Vec::new();
 
@@ -118,7 +130,9 @@ impl<I> CodeGenerator<targets::Python> for EnumExp<I> {
                             .map(|i| format!("'{i}'"))
                             .collect::<Vec<_>>()
                             .join(", ");
-                        enum_attributes.push(format!("validation_alias=AliasChoices('{name}', '{alias_literals}')"));
+                        enum_attributes.push(format!(
+                            "validation_alias=AliasChoices('{name}', '{alias_literals}')"
+                        ));
                     }
 
                     if !enum_attributes.is_empty() {
@@ -146,25 +160,26 @@ impl<I> CodeGenerator<targets::Python> for EnumExp<I> {
                             .map(|i| format!("'{i}'"))
                             .collect::<Vec<_>>()
                             .join(", ");
-                        field_attributes.push(format!("validation_alias=AliasChoices('{name}', {alias_literals})"));
+                        field_attributes.push(format!(
+                            "validation_alias=AliasChoices('{name}', {alias_literals})"
+                        ));
                     }
-                    
-                    write!(s, "     {name}: {field_type}")?;
+
+                    write!(s, "    {name} = {field_type}")?;
                 }
                 EnumVarient::Unit { .. } => {
-
-                    write!(s, "     {name}: str")?;
+                    write!(s, "    {name} = Literal")?;
                 }
             }
 
             writeln!(s)?;
 
             if comments.has_doc() {
-                writeln!(s, "     \"\"\"")?;
+                writeln!(s, "    \"\"\"")?;
                 for comment in comments.iter_doc() {
                     writeln!(s, "     {comment}")?;
                 }
-                writeln!(s, "     \"\"\"")?;
+                writeln!(s, "    \"\"\"")?;
             }
         }
 

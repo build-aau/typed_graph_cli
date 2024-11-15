@@ -31,6 +31,13 @@ impl<I> CodeGenerator<targets::Rust> for EnumExp<I> {
         writeln!(s, "use changesets::Changeset;")?;
         writeln!(s, "#[allow(unused_imports)]")?;
         writeln!(s, "use indexmap::IndexMap;")?;
+        writeln!(s, "#[allow(unused_imports)]")?;
+        writeln!(s, "use std::collections::HashSet;")?;
+        writeln!(s, "#[allow(unused_imports)]")?;
+        writeln!(
+            s,
+            "use typed_graph::{{GenericTypedError, GenericTypedResult}};"
+        )?;
 
         let mut derive_traits = vec![
             "Clone".to_string(),
@@ -79,13 +86,17 @@ impl<I> CodeGenerator<targets::Rust> for EnumExp<I> {
 
         writeln!(s, "")?;
         write_comments(&mut s, &self.comments, Default::default())?;
-        
+
         writeln!(s, "#[derive({derive_traits_s})]")?;
         if self.attributes.is_untagged() {
             writeln!(s, "#[serde(untagged)]")?;
         }
         writeln!(s, "pub enum {enum_name}{generics} {{",)?;
         for varient in &self.varients {
+            if varient.attributes().has_derived_default() {
+                writeln!(s, "    #[default]")?;
+            }
+
             match varient {
                 EnumVarient::Struct {
                     name,
@@ -94,15 +105,19 @@ impl<I> CodeGenerator<targets::Rust> for EnumExp<I> {
                     attributes,
                     ..
                 } => {
-                    write_comments(&mut s, comments, FieldFormatter {
-                        indents: 1,
-                        include_visibility: false
-                    })?;
+                    write_comments(
+                        &mut s,
+                        comments,
+                        FieldFormatter {
+                            indents: 1,
+                            include_visibility: false,
+                        },
+                    )?;
 
                     if attributes.is_skipped() {
                         writeln!(s, "    #[serde(skip)]")?;
                     }
-                    
+
                     if attributes.is_untagged() {
                         writeln!(s, "    #[serde(untagged)]")?;
                     }
@@ -119,32 +134,36 @@ impl<I> CodeGenerator<targets::Rust> for EnumExp<I> {
 
                     writeln!(s, "    {name} {{")?;
                     write_fields(
-                        &mut s, 
+                        &mut s,
                         fields,
                         FieldFormatter {
                             indents: 2,
-                            include_visibility: false
-                        }
+                            include_visibility: false,
+                        },
                     )?;
                     writeln!(s, "    }},")?;
                 }
-                EnumVarient::Opaque { 
-                    name, 
-                    comments, 
+                EnumVarient::Opaque {
+                    name,
+                    comments,
                     attributes,
                     ty,
-                    .. } => {
-
+                    ..
+                } => {
                     let field_type = ty.to_rust_type();
-                    write_comments(&mut s, comments, FieldFormatter {
-                        indents: 1,
-                        include_visibility: false
-                    })?;
+                    write_comments(
+                        &mut s,
+                        comments,
+                        FieldFormatter {
+                            indents: 1,
+                            include_visibility: false,
+                        },
+                    )?;
 
                     if attributes.is_skipped() {
                         writeln!(s, "    #[serde(skip)]")?;
                     }
-                    
+
                     if attributes.is_untagged() {
                         writeln!(s, "    #[serde(untagged)]")?;
                     }
@@ -161,20 +180,25 @@ impl<I> CodeGenerator<targets::Rust> for EnumExp<I> {
 
                     writeln!(s, "    {name} ({field_type}),")?;
                 }
-                EnumVarient::Unit { 
-                    name, 
-                    comments, 
+                EnumVarient::Unit {
+                    name,
+                    comments,
                     attributes,
-                    .. } => {
-                    write_comments(&mut s, comments, FieldFormatter {
-                        indents: 1,
-                        include_visibility: false
-                    })?;
+                    ..
+                } => {
+                    write_comments(
+                        &mut s,
+                        comments,
+                        FieldFormatter {
+                            indents: 1,
+                            include_visibility: false,
+                        },
+                    )?;
 
                     if attributes.is_skipped() {
                         writeln!(s, "    #[serde(skip)]")?;
                     }
-                    
+
                     if attributes.is_untagged() {
                         writeln!(s, "    #[serde(untagged)]")?;
                     }
@@ -243,17 +267,28 @@ pub(super) fn write_type_from<I: Clone + PartialEq + Ord + Default>(
     changeset: &ChangeSet<I>,
     parent_ty: &String,
 ) -> GenResult<String> {
-    let (end_bracket, new_type_generics, old_type_generics, impl_generics) =
+    let mut omit_convertion = false;
+
+    if !t.generics.generics.is_empty() {
+        // https://github.com/rust-lang/rust/issues/50133
+        // TryFrom does not allow us to do generic implementations
+        // So instead of making our own trait we just force the user to implement all needed types
+        omit_convertion = true;
+    }
+
+    let (new_type_generics, old_type_generics) =
         create_generics(&t.name, &t.generics, changeset)?;
 
     // writeln!(s, "impl{impl_generics} From<{parent_ty}{old_type_generics}> for {struct_type}{new_type_generics} {end_bracket}")?;
 
     let enum_name = &t.name;
     let mut s = String::new();
-    writeln!(s, "impl{impl_generics} From<{parent_ty}{old_type_generics}> for Option<{enum_name}{new_type_generics}> {end_bracket}")?;
+    writeln!(s, "impl TryFrom<{parent_ty}{old_type_generics}> for {enum_name}{new_type_generics} {{")?;
+    writeln!(s, "    type Error = GenericTypedError<String, String>;")?;
+    writeln!(s, "")?;
     writeln!(
         s,
-        "    fn from(other: {parent_ty}{old_type_generics}) -> Self {{"
+        "    fn try_from(other: {parent_ty}{old_type_generics}) -> GenericTypedResult<Self, String, String> {{",
     )?;
     writeln!(s, "        match other {{")?;
 
@@ -289,45 +324,120 @@ pub(super) fn write_type_from<I: Clone + PartialEq + Ord + Default>(
                         .map(|field_value| &field_value.name)
                         .collect();
 
-                    // We then build up the match statement with all of the patterns
-                    writeln!(s, "               {parent_ty}::{name} {{")?;
+                    // We then build up pattern in the match statement statement with all of the patterns
+                    writeln!(s, "           {parent_ty}::{name} {{")?;
                     for field_value in fields.iter() {
                         let field_name = &field_value.name;
                         if persistent_fields.contains(field_name) {
-                            writeln!(s, "                   {field_name},")?;
+                            writeln!(s, "                {field_name},")?;
                         }
                     }
-                    writeln!(s, "                   ..")?;
-                    writeln!(s, "               }} => Some({enum_name}::{name} {{")?;
+                    writeln!(s, "                ..")?;
+                    writeln!(s, "            }} => Ok({enum_name}::{name} {{")?;
+                    // Lastly we implement the conversion
                     for field_value in fields.iter() {
                         let field_name = &field_value.name;
                         if persistent_fields.contains(field_name) {
-                            writeln!(s, "                   {field_name}: {field_name}.into(),")?;
+                            let field_path = FieldPath::new_path(
+                                enum_name.clone(),
+                                vec![name.clone(), (*field_name).clone()],
+                            );
+
+                            let changes = changeset.get_changes(field_path);
+
+                            let type_change = changes
+                                .iter()
+                                .filter_map(|c| {
+                                    if let SingleChange::EditedFieldType(v) = c {
+                                        Some(v)
+                                    } else {
+                                        None
+                                    }
+                                })
+                                .next();
+                            let mut need_manual_implementation = false;
+                            if let Some(type_change) = type_change {
+                                if !type_change
+                                    .old_type()
+                                    .is_gen_compatible(type_change.new_type())
+                                {
+                                    // We cannot trust the auto generated conversion so a manual one should be made instead
+                                    omit_convertion = true;
+                                    need_manual_implementation = true;
+                                }
+                                if need_manual_implementation {
+                                    writeln!(
+                                        s,
+                                        "                {field_name}: /* Insert convertion */,"
+                                    )?;
+                                } else {
+                                    writeln!(
+                                        s,
+                                        "                {field_name}: {},",
+                                        type_change
+                                            .old_type()
+                                            .gen_convertion(format!("{field_name}"), true, type_change.new_type())
+                                    )?;
+                                }
+                            } else {
+                                writeln!(s, "           {field_name}: {},", field_value.field_type.gen_convertion(format!("{field_name}"), true, &field_value.field_type))?;
+                            }
                         } else {
-                            writeln!(s, "                   {field_name}: Default::default(),")?;
+                            writeln!(s, "                {field_name}: Default::default(),")?;
                         }
                     }
-                    writeln!(s, "               }}),")?;
+                    writeln!(s, "           }}),")?;
                 }
-                EnumVarient::Opaque { name, .. } => {
-                    writeln!(
-                        s,
-                        "               {parent_ty}::{name}(ty) => Some({enum_name}::{name}(ty.into())),"
-                    )?;
+                EnumVarient::Opaque { name, ty, .. } => {
+                    let field_path = FieldPath::new_path(
+                        enum_name.clone(),
+                        vec![name.clone()],
+                    );
+
+                    let changes = changeset.get_changes(field_path);
+
+                    let type_change = changes
+                        .iter()
+                        .filter_map(|c| {
+                            if let SingleChange::EditedOpaque(v) = c {
+                                Some(v)
+                            } else {
+                                None
+                            }
+                        })
+                        .next();
+                    
+                    if let Some(type_change) = type_change {
+                        writeln!(
+                            s,
+                            "            {parent_ty}::{name}(ty) => Ok({enum_name}::{name}({})),",
+                            type_change.old_type().gen_convertion("ty".to_string(), true, type_change.new_type())
+                        )?;
+                    } else {
+                        writeln!(
+                            s,
+                            "            {parent_ty}::{name}(ty) => Ok({enum_name}::{name}({})),",
+                            ty.gen_convertion("ty".to_string(), true, ty)
+                        )?;
+                    }
                 }
                 EnumVarient::Unit { name, .. } => {
                     writeln!(
                         s,
-                        "               {parent_ty}::{name} => Some({enum_name}::{name}),"
+                        "            {parent_ty}::{name} => Ok({enum_name}::{name}),"
                     )?;
                 }
             }
         }
     }
 
-    writeln!(s, "               _ => None,")?;
     writeln!(s, "       }}")?;
     writeln!(s, "    }}")?;
     writeln!(s, "}}")?;
-    Ok(s)
+
+    if omit_convertion {
+        Ok(format!("/*Requires manual implementation\n{s}*/"))
+    } else {
+        Ok(s)
+    }
 }

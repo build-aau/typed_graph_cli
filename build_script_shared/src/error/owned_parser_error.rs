@@ -87,7 +87,7 @@ impl Display for OwnedParserError {
                     e.len
                 };
 
-                let preview = CodePreview::new(data, e.offset, caret_len, 2, 2);
+                let preview = CodePreview::new(data, e.offset, caret_len, 2, 2, true);
                 write!(
                     f,
                     "{}:{}:{}: ",

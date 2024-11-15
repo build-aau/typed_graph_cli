@@ -117,9 +117,21 @@ impl<I> ChangeSet<I> {
                         changes.push(change)
                     }
                 }
+                SingleChange::EditedOpaque(f) => {
+                    if f.field_path == path
+                        || path.path.is_empty() && f.field_path.root == path.root
+                    {
+                        changes.push(change)
+                    }
+                }
                 SingleChange::EditedGenerics(f) => {
                     if f.type_name == path.root {
                         changes.push(change);
+                    }
+                }
+                SingleChange::EditedSchema(_) => {
+                    if path.root == "" {
+                        changes.push(change)
                     }
                 }
                 SingleChange::EditedVariantsOrder(f) => {
@@ -351,7 +363,7 @@ fn schema_changeset_test() {
                 let caret_len = of_interest.len();
                 let caret_offset = change_showcase.find(&of_interest).unwrap_or_default();
 
-                let preview = CodePreview::new(&change_showcase, caret_offset, caret_len, 4, 4);
+                let preview = CodePreview::new(&change_showcase, caret_offset, caret_len, 4, 4, true);
                 println!("{preview}");
                 println!();
                 res.unwrap();

@@ -2,7 +2,6 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use build_changeset_lang::{ChangeSet, FieldPath, SingleChange};
 use build_script_shared::parsers::{Generics, Ident, Mark, Types};
-use std::fmt::Write;
 
 use crate::{GenResult, ToRustType};
 
@@ -139,29 +138,17 @@ pub fn create_generics<I: PartialEq + Ord + Clone + Default>(
     type_name: &Ident<I>,
     generics: &Generics<I>,
     changeset: &ChangeSet<I>,
-) -> GenResult<(String, String, String, String)>
+) -> GenResult<(String, String)>
 where
-    Types<I>: ToRustType,
+    Types<I>: ToRustType<I>,
 {
     let (old_generics, new_generics) = get_generic_changes(type_name, generics, changeset);
 
     let old_generic_letters: Vec<_> = old_generics.iter().map(|g| format!("{}Old", g)).collect();
     let new_generic_letters: Vec<_> = new_generics.iter().map(|g| format!("{}New", g)).collect();
-    let all_generics: Vec<_> = old_generic_letters
-        .iter()
-        .chain(new_generic_letters.iter())
-        .cloned()
-        .collect();
 
     let fmt_old_generic = old_generic_letters.join(", ");
     let fmt_new_generic = new_generic_letters.join(", ");
-    let fmt_all_generic = all_generics.join(", ");
-
-    let impl_generics = if !fmt_all_generic.is_empty() {
-        format!("<{fmt_all_generic}>")
-    } else {
-        "".to_string()
-    };
 
     let old_type_generics = if !fmt_old_generic.is_empty() {
         format!("<{fmt_old_generic}>")
@@ -175,43 +162,8 @@ where
         "".to_string()
     };
 
-    let (into_mapping, default_mapping) = get_generic_field_type_changes(
-        type_name,
-        generics,
-        &new_generics,
-        &old_generics,
-        changeset,
-    );
-
-    // Build where clause
-    let end_bracket = if !into_mapping.is_empty() || !default_mapping.is_empty() {
-        let mut end_bracket = String::new();
-        writeln!(end_bracket)?;
-        writeln!(end_bracket, "where")?;
-        for default in default_mapping {
-            writeln!(end_bracket, "    {default}: Default,")?;
-        }
-        for (from_type, to_types) in into_mapping {
-            let into_impl = to_types
-                .into_iter()
-                .map(|ty| format!("Into<{}>", ty.to_rust_type()))
-                .collect::<Vec<_>>()
-                .join(" + ");
-
-            let rust_from_type = from_type.to_rust_type();
-            writeln!(end_bracket, "    {rust_from_type}: {into_impl},")?;
-        }
-        writeln!(end_bracket, "{{")?;
-
-        end_bracket
-    } else {
-        " {{".to_string()
-    };
-
     Ok((
-        end_bracket,
         new_type_generics,
         old_type_generics,
-        impl_generics,
     ))
 }

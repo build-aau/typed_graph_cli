@@ -1,5 +1,6 @@
 mod case_changer;
 mod code_generation;
+mod book_generation;
 mod gen_error;
 mod project;
 

@@ -1,0 +1,25 @@
+{% macro write_doc(doc_comments, comments) %}
+{% if doc_comments or comments -%}
+{%- if doc_comments -%}
+> {{ doc_comments }}  
+{%- endif -%}
+{%- if comments %}
+
+**Extra comments:**  
+> {{ comments }}
+{%- endif -%}
+{%- endif -%}
+{% endmacro write_doc %}
+
+{% macro write_fields(fields) %}
+{% for field in fields -%}
+{%- if field.doc_comments or field.comments -%}
+<p><details>
+<summary>{{ field.name }}: {{ field.ty }}</summary>  
+{{ self::write_doc(doc_comments=field.doc_comments, comments=field.comments)}}  
+</details></p>
+{%- else %}
+{{ field.name }}: {{ field.ty }}  
+{% endif -%}
+{%- endfor -%}
+{% endmacro write_fields %}

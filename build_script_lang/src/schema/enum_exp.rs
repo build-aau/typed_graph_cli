@@ -3,7 +3,6 @@ use build_script_shared::error::*;
 use build_script_shared::parsers::*;
 use build_script_shared::{compose_test, InputType};
 use fake::Dummy;
-use fake::Fake;
 use fake::Faker;
 use nom::bytes::complete::*;
 use nom::character::complete::*;
@@ -27,14 +26,10 @@ use super::Fields;
 const DERIVE: &str = "derive";
 const JSON: &str = "json";
 
-const JSON_ATTRIBUTES: &[&'static str] = &[
-    "untagged"
-];
+const JSON_ATTRIBUTES: &[&'static str] = &["untagged"];
 
-const ALLOWED_FUNCTION_ATTRIBUTES: &[(&str, Option<usize>)] = &[
-    (DERIVE, None),
-    (JSON, Some(1)),
-];
+const ALLOWED_FUNCTION_ATTRIBUTES: &[(&str, Option<usize>, Option<&[&str]>)] =
+    &[(DERIVE, None, None), (JSON, Some(1), Some(JSON_ATTRIBUTES))];
 
 #[derive(PartialEq, Eq, Debug, Clone, Default, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(bound = "I: Default + Clone")]
@@ -72,14 +67,13 @@ impl<'c, I> EnumExp<I> {
 
     pub fn is_only_units(&self) -> bool {
         let mut is_safe = true;
-        
+
         for varient in &self.varients {
             match varient {
                 EnumVarient::Unit { .. } => (),
-                EnumVarient::Opaque { .. }
-                | EnumVarient::Struct { .. } => {
+                EnumVarient::Opaque { .. } | EnumVarient::Struct { .. } => {
                     is_safe = false;
-                },
+                }
             }
         }
 
@@ -169,11 +163,8 @@ impl<'c, I> EnumExp<I> {
     where
         I: Clone,
     {
-        self.attributes.check_attributes(
-            &[], 
-            ALLOWED_FUNCTION_ATTRIBUTES, 
-            &[]
-        )?;
+        self.attributes
+            .check_attributes(&[], ALLOWED_FUNCTION_ATTRIBUTES, &[])?;
 
         for attrr in self.attributes.iter() {
             match attrr {
@@ -183,7 +174,7 @@ impl<'c, I> EnumExp<I> {
                             if !JSON_ATTRIBUTES.contains(&value.as_ref()) {
                                 return Err(Err::Failure(
                                     ParserError::new_at(
-                                        attr, 
+                                        attr,
                                         ParserErrorKind::InvalidAttribute(format!(
                                             "Failed to match {value} as a valid attribute allowed ones are {}", 
                                             JSON_ATTRIBUTES.join(", ")
@@ -194,7 +185,7 @@ impl<'c, I> EnumExp<I> {
                         }
                     }
                 }
-                _ => ()
+                _ => (),
             }
         }
 
@@ -377,7 +368,10 @@ impl<I: Dummy<Faker>> Dummy<Faker> for EnumExp<I> {
             .collect();
 
         let exp = EnumExp {
-            attributes: Attributes::dummy_with_rng(&AllowedFunctionAttribute(ALLOWED_FUNCTION_ATTRIBUTES), rng),
+            attributes: Attributes::dummy_with_rng(
+                &AllowedFunctionAttribute(ALLOWED_FUNCTION_ATTRIBUTES),
+                rng,
+            ),
             name: Ident::dummy_with_rng(&Faker, rng),
             comments: Comments::dummy_with_rng(&Faker, rng),
             generics: Generics::dummy_with_rng(&Faker, rng),
@@ -414,7 +408,10 @@ impl<I: Dummy<Faker> + Clone> Dummy<EnumExpOfType<I>> for EnumExp<I> {
             .collect();
 
         let mut exp = EnumExp {
-            attributes: Attributes::dummy_with_rng(&AllowedFunctionAttribute(ALLOWED_FUNCTION_ATTRIBUTES), rng),
+            attributes: Attributes::dummy_with_rng(
+                &AllowedFunctionAttribute(ALLOWED_FUNCTION_ATTRIBUTES),
+                rng,
+            ),
             name: config.name.clone(),
             generics,
             comments: Dummy::dummy_with_rng(&Faker, rng),
@@ -445,26 +442,25 @@ impl<I: Dummy<Faker> + Clone> Dummy<EnumExpOfType<I>> for EnumExp<I> {
                     continue;
                 }
 
-                phantom_fields.insert_field(FieldValue {
-                    name: Ident::new(
-                        format!("Phantom{}", generic.letter),
+                let mut value = FieldValue::dummy_with_rng(&Faker, rng);
+
+                value.name = Ident::new(
+                    format!("Phantom{}", generic.letter),
+                    Mark::dummy_with_rng(&Faker, rng),
+                );
+                value.field_type = Types::Reference {
+                    inner: Ident::new(
+                        generic.letter.to_string(),
                         Mark::dummy_with_rng(&Faker, rng),
                     ),
-                    attributes: AllowedFunctionAttribute(ALLOWED_FUNCTION_ATTRIBUTES).fake_with_rng(rng),
-                    visibility: Dummy::dummy_with_rng(&Faker, rng),
-                    comments: Dummy::dummy_with_rng(&Faker, rng),
-                    field_type: Types::Reference {
-                        inner: Ident::new(
-                            generic.letter.to_string(),
-                            Mark::dummy_with_rng(&Faker, rng),
-                        ),
-                        generics: Default::default(),
-                        marker: Mark::dummy_with_rng(&Faker, rng),
-                    },
-                    order: phantom_fields
-                        .last_order()
-                        .map_or_else(|| 0, |order| order + 1),
-                });
+                    generics: Default::default(),
+                    marker: Mark::dummy_with_rng(&Faker, rng),
+                };
+                value.order = phantom_fields
+                    .last_order()
+                    .map_or_else(|| 0, |order| order + 1);
+
+                phantom_fields.insert_field(value);
             }
 
             let phantom_varient = EnumVarient::Struct {

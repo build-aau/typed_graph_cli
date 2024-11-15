@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use build_script_lang::schema::{Schema, Visibility, FieldValue};
+use build_script_lang::schema::{FieldValue, Schema, Visibility};
 use build_script_shared::compose_test;
 use build_script_shared::parsers::*;
 use build_script_shared::InputType;
@@ -75,21 +75,22 @@ impl<I> AddedField<I> {
 
 impl<I: InputType> ParserDeserialize<I> for AddedField<I> {
     fn parse(s: I) -> build_script_shared::error::ParserResult<I, Self> {
-        let (s, (comments, attributes, ((visibility, field_path), (field_type, order)))) = context(
-            "Parsing AddedField",
-            tuple((
-                Comments::parse,
-                Attributes::parse,
-                preceded(
-                    ws(char('+')),
-                    key_value(
-                        pair(Visibility::parse, FieldPath::parse),
-                        char(':'),
-                        pair(Types::parse, surrounded('(', u64, ')')),
+        let (s, (comments, attributes, ((visibility, field_path), (field_type, order)))) =
+            context(
+                "Parsing AddedField",
+                tuple((
+                    Comments::parse,
+                    Attributes::parse,
+                    preceded(
+                        ws(char('+')),
+                        key_value(
+                            pair(Visibility::parse, FieldPath::parse),
+                            char(':'),
+                            pair(Types::parse, surrounded('(', u64, ')')),
+                        ),
                     ),
-                ),
-            )),
-        )(s)?;
+                )),
+            )(s)?;
 
         Ok((
             s,

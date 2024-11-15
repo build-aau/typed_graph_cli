@@ -92,24 +92,25 @@ impl<I> AddedVarient<I> {
 
 impl<I: InputType> ParserDeserialize<I> for AddedVarient<I> {
     fn parse(s: I) -> build_script_shared::error::ParserResult<I, Self> {
-        let (s, (comments, attributes, ((type_name, varient_name), order, varient_type))) = context(
-            "Parsing AddedVarient",
-            tuple((
-                Comments::parse,
-                Attributes::parse,
-                preceded(
-                    ws(char('+')),
+        let (s, (comments, attributes, ((type_name, varient_name), order, varient_type))) =
+            context(
+                "Parsing AddedVarient",
+                tuple((
+                    Comments::parse,
+                    Attributes::parse,
                     preceded(
-                        ws(tag("enum")),
-                        tuple((
-                            separated_pair(Ident::ident, char('.'), Ident::ident),
-                            surrounded('(', u64, ')'),
-                            ws(AddedVarientType::parse),
-                        )),
+                        ws(char('+')),
+                        preceded(
+                            ws(tag("enum")),
+                            tuple((
+                                separated_pair(Ident::ident, char('.'), Ident::ident),
+                                surrounded('(', u64, ')'),
+                                ws(AddedVarientType::parse),
+                            )),
+                        ),
                     ),
-                ),
-            )),
-        )(s)?;
+                )),
+            )(s)?;
 
         Ok((
             s,
@@ -135,6 +136,7 @@ impl<I> ParserSerialize for AddedVarient<I> {
         let new_ctx = ctx.set_indents(0);
 
         self.comments.compose(f, ctx)?;
+        self.attributes.compose(f, ctx)?;
         write!(f, "{indents}+ enum ")?;
         self.type_name.compose(f, new_ctx)?;
         write!(f, ".")?;

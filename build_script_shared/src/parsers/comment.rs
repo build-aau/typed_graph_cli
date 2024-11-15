@@ -82,6 +82,16 @@ impl Comments {
         })
     }
 
+    pub fn iter_non_doc(&self) -> impl Iterator<Item = &String> {
+        self.comments.iter().filter_map(|comment| {
+            match comment {
+                Comment::Block(c) => Some(c),
+                Comment::Line(c) => Some(c),
+                Comment::Doc(_) => None
+            }
+        })
+    }
+
     pub fn has_doc(&self) -> bool {
         self.comments.iter().any(|c| matches!(c, Comment::Doc(_)))
     }

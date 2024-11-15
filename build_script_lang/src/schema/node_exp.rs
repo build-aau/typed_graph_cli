@@ -28,10 +28,10 @@ const RENAME_INC: &str = "rename_inc";
 const RENAME_OUT: &str = "rename_out";
 const DERIVE: &str = "derive";
 
-const ALLOWED_ATTRIBUTES: &[(&str, Option<usize>)] = &[
-    (RENAME_INC, Some(2)), 
-    (RENAME_OUT, Some(2)), 
-    (DERIVE, None),
+const ALLOWED_ATTRIBUTES: &[(&str, Option<usize>, Option<&[&str]>)] = &[
+    (RENAME_INC, Some(2), None),
+    (RENAME_OUT, Some(2), None),
+    (DERIVE, None, None),
 ];
 
 #[derive(
@@ -91,14 +91,11 @@ impl<I> NodeExp<I> {
     where
         I: Clone,
     {
-        self.attributes.check_attributes(
-            &[], 
-            ALLOWED_ATTRIBUTES, 
-            &[]
-        )?;
+        self.attributes
+            .check_attributes(&[], ALLOWED_ATTRIBUTES, &[])?;
 
         self.fields.check_attributes()?;
-        
+
         Ok(())
     }
 

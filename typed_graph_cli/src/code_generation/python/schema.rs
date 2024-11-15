@@ -1,8 +1,8 @@
 use crate::*;
 use build_script_lang::schema::{Schema, SchemaStm};
+use build_script_shared::parsers::ParserSerialize;
 use std::fmt::{Debug, Write};
 use std::path::Path;
-use build_script_shared::parsers::ParserSerialize;
 
 use super::{
     write_edge_endpoints_py, write_edge_type_py, write_edges_py, write_node_type_py, write_nodes_py,
@@ -83,9 +83,9 @@ fn write_content<I>(
     structs_folder: &Path,
     edges_folder: &Path,
     types_folder: &Path,
-) -> GenResult<()> 
+) -> GenResult<()>
 where
-    I: Ord
+    I: Ord,
 {
     // Write ./{nodes|edges|types}/{filename}.rs
     for stm in schema.iter() {
@@ -119,9 +119,9 @@ fn write_init<I>(
     structs_folder: &Path,
     edges_folder: &Path,
     types_folder: &Path,
-) -> GenResult<()> 
+) -> GenResult<()>
 where
-    I: Ord
+    I: Ord,
 {
     // Write ./{nodes|edges|types}/__init__.py
     let nodes_init_path = nodes_folder.join("__init__.py");
@@ -209,6 +209,9 @@ where
     writeln!(s, "from . import imports as imports1")?;
     writeln!(s, "from .. import imports as imports2")?;
     writeln!(s, "")?;
+    writeln!(s, "from ..imports import *")?;
+    writeln!(s, "from .imports import *")?;
+    writeln!(s, "")?;
     writeln!(s, "if hasattr(imports1, 'NodeId'):")?;
     writeln!(s, "    NodeId = imports1.NodeId")?;
     writeln!(s, "else:")?;
@@ -221,7 +224,11 @@ where
     writeln!(s, "")?;
     writeln!(s, "{schema_name}Graph = TypedGraph[Node, Edge, NodeId, EdgeId, NodeType, EdgeType, {schema_name}]")?;
     writeln!(s, "")?;
-    writeln!(s, "SCHEMA_DEFINITION = \"\"\"{}\"\"\"#;", schema.serialize_to_string()?)?;
+    writeln!(
+        s,
+        "SCHEMA_DEFINITION = \"\"\"{}\"\"\"#;",
+        schema.serialize_to_string()?
+    )?;
     writeln!(s, "")?;
     writeln!(s, "__main__ = [")?;
     writeln!(s, "    'EdgeType',")?;
@@ -258,12 +265,18 @@ fn write_schema_impl_py<I: Ord>(
     let mut schema_py = String::new();
 
     writeln!(schema_py, "from typing import TypeVar")?;
-    writeln!(schema_py, "from typed_graph import SchemaExt, TypeStatus, RustRootModel")?;
+    writeln!(
+        schema_py,
+        "from typed_graph import SchemaExt, TypeStatus, RustRootModel"
+    )?;
     writeln!(schema_py, "from .node import Node")?;
     writeln!(schema_py, "from .edge import Edge")?;
     writeln!(schema_py, "from .edge_type import EdgeType")?;
     writeln!(schema_py, "from .node_type import NodeType")?;
-    writeln!(schema_py, "from typing import ClassVar, Dict, Tuple, Literal")?;
+    writeln!(
+        schema_py,
+        "from typing import ClassVar, Dict, Tuple, Literal"
+    )?;
     writeln!(schema_py, "")?;
     writeln!(schema_py, "NK = TypeVar('NK')")?;
     writeln!(schema_py, "EK = TypeVar('EK')")?;
@@ -281,8 +294,10 @@ fn write_schema_impl_py<I: Ord>(
             let outgoing_quantity = endpoint.outgoing_quantity.bounds;
             let incoming_quantity = endpoint.incoming_quantity.bounds;
 
-            let outgoing_quantity_text = outgoing_quantity.map_or_else(|| "None".to_string(), |(_, q)| q.to_string());
-            let incoming_quantity_text = incoming_quantity.map_or_else(|| "None".to_string(), |(_, q)| q.to_string());
+            let outgoing_quantity_text =
+                outgoing_quantity.map_or_else(|| "None".to_string(), |(_, q)| q.to_string());
+            let incoming_quantity_text =
+                incoming_quantity.map_or_else(|| "None".to_string(), |(_, q)| q.to_string());
 
             writeln!(schema_py, "        (EdgeType.{edge_type}, NodeType.{source}, NodeType.{target}): ({outgoing_quantity_text}, {incoming_quantity_text}),")?;
         }
@@ -290,20 +305,29 @@ fn write_schema_impl_py<I: Ord>(
     writeln!(schema_py, "    }}")?;
     writeln!(schema_py, "")?;
     writeln!(schema_py, "    tagging: ClassVar[bool] = False")?;
-    writeln!(schema_py, "    root: Literal['{schema_name}']")?;
+    writeln!(schema_py, "    root: Literal['{schema_version}']")?;
     writeln!(schema_py, "")?;
     writeln!(schema_py, "    def name(self) -> str:")?;
     writeln!(schema_py, "        return '{schema_version}'")?;
     writeln!(schema_py, "")?;
-    writeln!(schema_py, "    def allow_node(self, node_type: NodeType) -> TypeStatus | bool:")?;
+    writeln!(
+        schema_py,
+        "    def allow_node(self, node_type: NodeType) -> TypeStatus | bool:"
+    )?;
     writeln!(schema_py, "        return isinstance(node_type, NodeType) and node_type in NodeType.__members__.keys()")?;
     writeln!(schema_py, "")?;
     writeln!(schema_py, "    def allow_edge(self, outgoing_quantity: int, incoming_quantity: int, edge_type: EdgeType, source_type: NodeType, target_type: NodeType) -> TypeStatus | bool:")?;
     writeln!(schema_py, "        source_allowed = isinstance(source_type, NodeType) and source_type in NodeType.__members__.keys()")?;
     writeln!(schema_py, "        target_allowed = isinstance(target_type, NodeType) and target_type in NodeType.__members__.keys()")?;
     writeln!(schema_py, "        edge_allowed = isinstance(edge_type, EdgeType) and edge_type in EdgeType.__members__.keys()")?;
-    writeln!(schema_py, "        edge_meta_key = (edge_type, source_type, target_type)")?;
-    writeln!(schema_py, "        endpoint_allowed = edge_meta_key in {schema_name}.endpoint_meta")?;
+    writeln!(
+        schema_py,
+        "        edge_meta_key = (edge_type, source_type, target_type)"
+    )?;
+    writeln!(
+        schema_py,
+        "        endpoint_allowed = edge_meta_key in {schema_name}.endpoint_meta"
+    )?;
     writeln!(schema_py, "")?;
     writeln!(schema_py, "        if not source_allowed or not target_allowed or not edge_allowed or not endpoint_allowed:")?;
     writeln!(schema_py, "            return TypeStatus.InvalidType")?;

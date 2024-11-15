@@ -24,13 +24,13 @@ impl<I> CodeGenerator<targets::Python> for StructExp<I> {
         writeln!(s, "from typed_graph import RustModel")?;
         writeln!(
             s,
-            "from typing import Optional, List, Dict, TypeVar, Generic, ClassVar"
+            "from typing import Optional, List, Set, Dict, TypeVar, Generic, ClassVar"
         )?;
         writeln!(s, "from pydantic import Field, AliasChoices")?;
         writeln!(s, "from ..structs import *")?;
         writeln!(s, "from ..types import *")?;
-        writeln!(s, "from ..imports import *")?;
         writeln!(s, "from ...imports import *")?;
+        writeln!(s, "from ..imports import *")?;
         writeln!(s)?;
 
         for generic in &self.generics.generics {

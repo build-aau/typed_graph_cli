@@ -142,6 +142,14 @@ where
         changes.extend(edited_types);
         changes.extend(removed_types);
 
+        let old_doc = self.comments.get_doc_comments();
+        let new_doc = new_version.comments.get_doc_comments();
+        if new_doc != old_doc {
+            changes.push(SingleChange::EditedSchema(EditedSchema {
+                comments: new_doc
+            }));
+        }
+
         changes.old_hash = self.get_hash();
         changes.new_hash = new_version.get_hash();
         changes.old_version = self.version.clone();

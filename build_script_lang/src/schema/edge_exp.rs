@@ -28,7 +28,8 @@ const ALLOWED_KEY_ATTRIBUTES: &[&str] = &[RENAME_INC, RENAME_OUT];
 
 const DERIVE: &str = "derive";
 
-const ALLOWED_FUNCTION_ATTRIBUTES: &[(&str, Option<usize>)] = &[(DERIVE, None)];
+const ALLOWED_FUNCTION_ATTRIBUTES: &[(&str, Option<usize>, Option<&[&str]>)] =
+    &[(DERIVE, None, None)];
 
 #[derive(
     PartialEq, Eq, Debug, Hash, Clone, Default, PartialOrd, Ord, Dummy, Serialize, Deserialize,
@@ -38,7 +39,9 @@ pub struct EdgeExp<I> {
     pub name: Ident<I>,
     #[serde(flatten)]
     pub comments: Comments,
-    #[dummy(faker = "AllowedAttributes(AllowedKeyValueAttribute(ALLOWED_KEY_ATTRIBUTES), AllowedFunctionAttribute(ALLOWED_FUNCTION_ATTRIBUTES), AllowedFunctionKeyValueAttribute(&[]))")]
+    #[dummy(
+        faker = "AllowedAttributes(AllowedKeyValueAttribute(ALLOWED_KEY_ATTRIBUTES), AllowedFunctionAttribute(ALLOWED_FUNCTION_ATTRIBUTES), AllowedFunctionKeyValueAttribute(&[]))"
+    )]
     #[serde(flatten)]
     pub attributes: Attributes<I>,
     #[serde(flatten)]
@@ -75,11 +78,15 @@ impl<I> EdgeExp<I> {
     }
 
     pub fn get_rename_inc(&self) -> Option<&str> {
-        self.attributes.get_key_value(RENAME_INC).map(|kv| kv.value.as_ref())
+        self.attributes
+            .get_key_value(RENAME_INC)
+            .map(|kv| kv.value.as_ref())
     }
 
     pub fn get_rename_out(&self) -> Option<&str> {
-        self.attributes.get_key_value(RENAME_OUT).map(|kv| kv.value.as_ref())
+        self.attributes
+            .get_key_value(RENAME_OUT)
+            .map(|kv| kv.value.as_ref())
     }
 
     pub fn parse_endpoints(s: I) -> ParserResult<I, BTreeMap<(Ident<I>, Ident<I>), EndPoint<I>>>
@@ -111,9 +118,9 @@ impl<I> EdgeExp<I> {
         I: Clone,
     {
         self.attributes.check_attributes(
-            ALLOWED_KEY_ATTRIBUTES, 
-            ALLOWED_FUNCTION_ATTRIBUTES, 
-            &[]
+            ALLOWED_KEY_ATTRIBUTES,
+            ALLOWED_FUNCTION_ATTRIBUTES,
+            &[],
         )?;
 
         for endpoint in self.endpoints.values() {

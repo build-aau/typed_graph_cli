@@ -71,21 +71,22 @@ impl<I> EndPoint<I> {
     where
         I: Clone,
     {
-        self.attributes.check_attributes(
-            ALLOWED_KEY_ATTRIBUTES, 
-            &[], 
-            &[]
-        )?;
+        self.attributes
+            .check_attributes(ALLOWED_KEY_ATTRIBUTES, &[], &[])?;
 
         Ok(())
     }
 
     pub fn get_rename_inc(&self) -> Option<&str> {
-        self.attributes.get_key_value(RENAME_INC).map(|kv| kv.value.as_ref())
+        self.attributes
+            .get_key_value(RENAME_INC)
+            .map(|kv| kv.value.as_ref())
     }
 
     pub fn get_rename_out(&self) -> Option<&str> {
-        self.attributes.get_key_value(RENAME_OUT).map(|kv| kv.value.as_ref())
+        self.attributes
+            .get_key_value(RENAME_OUT)
+            .map(|kv| kv.value.as_ref())
     }
 
     pub fn check_types(&self, node_reference_types: &HashSet<Ident<I>>) -> ParserSlimResult<I, ()>
@@ -111,14 +112,15 @@ impl<I> EndPoint<I> {
 
 impl<I: InputType> ParserDeserialize<I> for EndPoint<I> {
     fn parse(s: I) -> ParserResult<I, Self> {
-        let (s, (attributes, (((source, outgoing_quantity), (target, incoming_quantity)), marker))) = pair(
-            Attributes::parse,
-            marked(key_value(
-                pair(Ident::ident, Quantifier::parse),
-                ws(pair(char('='), char('>'))),
-                pair(Ident::ident, Quantifier::parse),
-            )),
-        )(s)?;
+        let (s, (attributes, (((source, outgoing_quantity), (target, incoming_quantity)), marker))) =
+            pair(
+                Attributes::parse,
+                marked(key_value(
+                    pair(Ident::ident, Quantifier::parse),
+                    ws(pair(char('='), char('>'))),
+                    pair(Ident::ident, Quantifier::parse),
+                )),
+            )(s)?;
 
         Ok((
             s,

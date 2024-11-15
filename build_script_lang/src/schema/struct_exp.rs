@@ -12,7 +12,6 @@ use build_script_shared::error::ParserSlimResult;
 use build_script_shared::parsers::*;
 use build_script_shared::InputType;
 use fake::Dummy;
-use fake::Fake;
 use fake::Faker;
 use nom::bytes::complete::*;
 use nom::character::complete::*;
@@ -27,14 +26,10 @@ use serde::Serialize;
 const DERIVE: &str = "derive";
 const JSON: &str = "json";
 
-const JSON_ATTRIBUTES: &[&'static str] = &[
-    "untagged"
-];
+const JSON_ATTRIBUTES: &[&'static str] = &["untagged"];
 
-const ALLOWED_FUNCTION_ATTRIBUTES: &[(&str, Option<usize>)] = &[
-    (DERIVE, None),
-    (JSON, Some(1)),
-];
+const ALLOWED_FUNCTION_ATTRIBUTES: &[(&str, Option<usize>, Option<&[&str]>)] =
+    &[(DERIVE, None, None), (JSON, Some(1), Some(JSON_ATTRIBUTES))];
 
 #[derive(
     PartialEq, Eq, Debug, Hash, Clone, Default, PartialOrd, Ord, Dummy, Serialize, Deserialize,
@@ -98,20 +93,23 @@ impl<I> StructExp<I> {
     where
         I: Clone,
     {
-        self.attributes.check_attributes(
-            &[], 
-            ALLOWED_FUNCTION_ATTRIBUTES, 
-            &[]
-        )?;
+        self.attributes
+            .check_attributes(&[], ALLOWED_FUNCTION_ATTRIBUTES, &[])?;
 
         let json_functions = self.attributes.get_functions(JSON);
         for func in json_functions {
             if let Some(tag) = func.values.get(0) {
                 if !JSON_ATTRIBUTES.contains(&tag.as_str()) {
-                    return Err(Err::Failure(ParserError::new_at(tag, ParserErrorKind::InvalidAttribute(format!("{}", JSON_ATTRIBUTES.join(","))))));
+                    return Err(Err::Failure(ParserError::new_at(
+                        tag,
+                        ParserErrorKind::InvalidAttribute(format!("{}", JSON_ATTRIBUTES.join(","))),
+                    )));
                 }
             } else {
-                return Err(Err::Failure(ParserError::new_at(func, ParserErrorKind::InvalidAttribute(format!("Expected 1 argument")))));
+                return Err(Err::Failure(ParserError::new_at(
+                    func,
+                    ParserErrorKind::InvalidAttribute(format!("Expected 1 argument")),
+                )));
             }
         }
 
@@ -254,25 +252,26 @@ impl<I: Dummy<Faker> + Clone> Dummy<StructExpOfType<I>> for StructExp<I> {
                 continue;
             }
 
-            fields.insert_field(FieldValue {
-                name: Ident::new(
-                    format!("phantom_{}", generic.letter),
-                    Mark::dummy_with_rng(&Faker, rng),
-                ),
-                attributes: AllowedFunctionAttribute(ALLOWED_FUNCTION_ATTRIBUTES).fake_with_rng(rng),
-                visibility: Dummy::dummy_with_rng(&Faker, rng),
-                comments: Dummy::dummy_with_rng(&Faker, rng),
-                field_type: Types::Reference {
-                    inner: generic.letter.clone(),
-                    generics: Default::default(),
-                    marker: Mark::dummy_with_rng(&Faker, rng),
-                },
-                order: fields.last_order().map_or_else(|| 0, |order| order + 1),
-            });
+            let mut value = FieldValue::dummy_with_rng(&Faker, rng);
+            value.name = Ident::new(
+                format!("phantom_{}", generic.letter),
+                Mark::dummy_with_rng(&Faker, rng),
+            );
+            value.field_type = Types::Reference {
+                inner: generic.letter.clone(),
+                generics: Default::default(),
+                marker: Mark::dummy_with_rng(&Faker, rng),
+            };
+            value.order = fields.last_order().map_or_else(|| 0, |order| order + 1);
+
+            fields.insert_field(value);
         }
 
         StructExp {
-            attributes: Attributes::dummy_with_rng(&AllowedFunctionAttribute(ALLOWED_FUNCTION_ATTRIBUTES), rng),
+            attributes: Attributes::dummy_with_rng(
+                &AllowedFunctionAttribute(ALLOWED_FUNCTION_ATTRIBUTES),
+                rng,
+            ),
             name: config.name.clone(),
             comments: Dummy::dummy_with_rng(&Faker, rng),
             generics,

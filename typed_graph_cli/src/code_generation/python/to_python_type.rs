@@ -24,11 +24,22 @@ impl<I> ToPythonType for Types<I> {
             Types::I32(_) => "int".to_string(),
             Types::I16(_) => "int".to_string(),
             Types::I8(_) => "int".to_string(),
-            Types::Option { inner, .. } => format!("Optional[{}]", inner.to_python_type_quoted(requires_quotes)),
-            Types::List { inner, .. } => format!("List[{}]", inner.to_python_type_quoted(requires_quotes)),
+            Types::Option { inner, .. } => {
+                format!("Optional[{}]", inner.to_python_type_quoted(requires_quotes))
+            }
+            Types::List { inner, .. } => {
+                format!("List[{}]", inner.to_python_type_quoted(requires_quotes))
+            }
+            Types::Set { inner, .. } => {
+                format!("Set[{}]", inner.to_python_type_quoted(requires_quotes))
+            }
             Types::Map { key, value, .. } => {
-                format!("Dict[{}, {}]", key.to_python_type_quoted(requires_quotes), value.to_python_type_quoted(requires_quotes))
-            },
+                format!(
+                    "Dict[{}, {}]",
+                    key.to_python_type_quoted(requires_quotes),
+                    value.to_python_type_quoted(requires_quotes)
+                )
+            }
             Types::Reference {
                 inner, generics, ..
             } => {
@@ -54,7 +65,6 @@ impl<I> ToPythonType for Types<I> {
     }
 }
 
-
 pub trait ToDefaultPythonValue {
     fn to_default_python_value(&self) -> String;
 }
@@ -77,7 +87,8 @@ impl<I> ToDefaultPythonValue for Types<I> {
             Types::I16(_) => "0".to_string(),
             Types::I8(_) => "0".to_string(),
             Types::Option { .. } => "None".to_string(),
-            Types::List { .. } => "[]".to_string(),
+            Types::List { .. }
+            | Types::Set { .. } => "[]".to_string(),
             Types::Map { .. } => "{{}}".to_string(),
             Types::Reference {
                 inner, generics, ..

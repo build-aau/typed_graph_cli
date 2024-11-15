@@ -128,6 +128,12 @@ impl<'a, I> PartialEq<&'a str> for Ident<I> {
     }
 }
 
+impl<I> PartialEq<String> for Ident<I> {
+    fn eq(&self, other: &String) -> bool {
+        &self.name == other
+    }
+}
+
 impl<I> PartialEq for Ident<I> {
     fn eq(&self, other: &Self) -> bool {
         self.name == other.name

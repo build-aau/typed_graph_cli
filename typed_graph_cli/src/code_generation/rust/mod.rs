@@ -1,19 +1,19 @@
 mod changeset;
+mod comments;
 mod edge_exp;
 mod enum_exp;
+mod fields;
 mod generics_util;
 mod node_exp;
 mod project;
 mod schema;
 mod struct_exp;
 mod to_rust_type;
-mod fields;
-mod comments;
 
 use comments::*;
-use fields::*;
 use edge_exp::*;
 use enum_exp::*;
+use fields::*;
 use generics_util::*;
 use node_exp::*;
 use schema::*;

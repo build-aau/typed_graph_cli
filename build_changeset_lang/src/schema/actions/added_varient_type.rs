@@ -1,12 +1,14 @@
 use std::fmt::Display;
 
 use build_script_lang::schema::EnumVarient;
-use build_script_shared::parsers::{surrounded, ComposeContext, ParserDeserialize, ParserSerialize, Types};
+use build_script_shared::parsers::{
+    surrounded, ComposeContext, ParserDeserialize, ParserSerialize, Types,
+};
 use build_script_shared::{compose_test, InputType};
 use fake::Dummy;
 use nom::branch::alt;
 use nom::bytes::complete::tag;
-use nom::combinator::{value, map};
+use nom::combinator::{map, value};
 use nom::error::context;
 use nom::sequence::preceded;
 
@@ -25,7 +27,7 @@ impl<I> AddedVarientType<I> {
         match self {
             AddedVarientType::Struct => AddedVarientType::Struct,
             AddedVarientType::Unit => AddedVarientType::Unit,
-            AddedVarientType::Opaque(ty) => AddedVarientType::Opaque(ty.map(f))
+            AddedVarientType::Opaque(ty) => AddedVarientType::Opaque(ty.map(f)),
         }
     }
 }
@@ -36,7 +38,10 @@ impl<I: InputType> ParserDeserialize<I> for AddedVarientType<I> {
             "Parsing AddedVarientType",
             alt((
                 value(AddedVarientType::Struct, tag("struct")),
-                map(preceded(tag("opaque"), surrounded('(', Types::parse, ')')), AddedVarientType::Opaque),
+                map(
+                    preceded(tag("opaque"), surrounded('(', Types::parse, ')')),
+                    AddedVarientType::Opaque,
+                ),
                 value(AddedVarientType::Unit, tag("unit")),
             )),
         )(s)
@@ -53,9 +58,9 @@ impl<I> ParserSerialize for AddedVarientType<I> {
             AddedVarientType::Struct => write!(f, "struct")?,
             AddedVarientType::Opaque(ty) => {
                 write!(f, "opaque(")?;
-                ty.compose(f, _ctx);
+                ty.compose(f, _ctx)?;
                 write!(f, ")")?;
-            },
+            }
             AddedVarientType::Unit => write!(f, "unit")?,
         }
 

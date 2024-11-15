@@ -33,6 +33,8 @@ impl<I> CodeGenerator<targets::Rust> for NodeExp<I> {
         writeln!(s, "use super::super::*;")?;
         writeln!(s, "#[allow(unused_imports)]")?;
         writeln!(s, "use indexmap::IndexMap;")?;
+        writeln!(s, "#[allow(unused_imports)]")?;
+        writeln!(s, "use std::collections::HashSet;")?;
         writeln!(s, "use typed_graph::*;")?;
         writeln!(s, "use serde::{{Serialize, Deserialize}};")?;
         #[cfg(feature = "diff")]
@@ -57,23 +59,23 @@ impl<I> CodeGenerator<targets::Rust> for NodeExp<I> {
         writeln!(s, "")?;
 
         write_comments(
-            &mut s, 
-            &self.comments, 
+            &mut s,
+            &self.comments,
             FieldFormatter {
                 indents: 0,
-                include_visibility: true
-            }
+                include_visibility: true,
+            },
         )?;
         writeln!(s, "#[derive({derive_traits_s})]")?;
         writeln!(s, "pub struct {node_type}<NK> {{")?;
         writeln!(s, "    pub(crate) id: NK,")?;
         write_fields(
-            &mut s, 
+            &mut s,
             &self.fields,
             FieldFormatter {
                 indents: 1,
-                include_visibility: true
-            }
+                include_visibility: true,
+            },
         )?;
         writeln!(s, "")?;
         writeln!(s, "}}")?;
@@ -388,6 +390,8 @@ pub(super) fn write_node_type_rs<I: Ord>(
     let mut node_type = String::new();
     writeln!(node_type, "use super::*;")?;
     writeln!(node_type, "use serde::{{Serialize, Deserialize}};")?;
+    writeln!(node_type, "use typed_graph::GenericTypedError;")?;
+    writeln!(node_type, "use std::str::FromStr;")?;
     #[cfg(feature = "diff")]
     writeln!(node_type, "use changesets::Changeset;")?;
 
@@ -396,6 +400,10 @@ pub(super) fn write_node_type_rs<I: Ord>(
         "Copy".to_string(),
         "Debug".to_string(),
         "PartialEq".to_string(),
+        "Hash".to_string(),
+        "Eq".to_string(),
+        "PartialOrd".to_string(),
+        "Ord".to_string(),
         "Serialize".to_string(),
         "Deserialize".to_string(),
         #[cfg(feature = "diff")]
@@ -415,6 +423,18 @@ pub(super) fn write_node_type_rs<I: Ord>(
     } else {
         writeln!(node_type, "pub struct NodeType;")?;
     }
+
+    writeln!(node_type, "impl NodeType {{")?;
+    writeln!(node_type, "    pub fn all() -> &'static [NodeType] {{")?;
+    writeln!(node_type, "        &[")?;
+    for n in &nodes {
+        let name = n.name.to_string();
+        writeln!(node_type, "            NodeType::{name},")?;
+    }
+    writeln!(node_type, "            ")?;
+    writeln!(node_type, "        ]")?;
+    writeln!(node_type, "    }}")?;
+    writeln!(node_type, "}}")?;
 
     writeln!(node_type, "")?;
     writeln!(node_type, "impl<NK> PartialEq<NodeType> for Node<NK> {{")?;
@@ -492,6 +512,30 @@ pub(super) fn write_node_type_rs<I: Ord>(
     writeln!(node_type, "    }}")?;
     writeln!(node_type, "}}")?;
 
+    writeln!(node_type, "")?;
+    writeln!(
+        node_type,
+        "impl FromStr for NodeType {{"
+    )?;
+    writeln!(
+        node_type,
+        "    type Err = GenericTypedError<String, String>;"
+    )?;
+    writeln!(node_type, "")?;
+    writeln!(
+        node_type,
+        "    fn from_str(value: &str) -> Result<Self, Self::Err> {{"
+    )?;
+    writeln!(node_type, "        match value {{")?;
+    for n in &nodes {
+        let node_name = &n.name;
+        writeln!(node_type, "            \"{node_name}\" => Ok(NodeType::{node_name}),")?;
+    }
+    writeln!(node_type, "            _ => Err(GenericTypedError::UnrecognizedNodeType(value.to_string(), NodeType::all().into_iter().map(ToString::to_string).collect()))")?;
+    writeln!(node_type, "        }}")?;
+    writeln!(node_type, "    }}")?;
+    writeln!(node_type, "}}")?;
+
     new_files.add_content(node_path, node_type);
 
     Ok(())
@@ -502,30 +546,76 @@ pub(super) fn write_node_from<I: Clone + PartialEq>(
     changeset: &ChangeSet<I>,
     parent_ty: &String,
 ) -> GenResult<String> {
+    let mut omit_convertion = false;
     let node_type = &n.name;
 
     let mut s = String::new();
     writeln!(s, "")?;
-    writeln!(s, "impl<NK> From<{parent_ty}<NK>> for {node_type}<NK> {{")?;
-    writeln!(s, "    fn from(other: {parent_ty}<NK>) -> Self {{")?;
-    writeln!(s, "       {node_type} {{")?;
+    writeln!(
+        s,
+        "impl<NK> TryFrom<{parent_ty}<NK>> for {node_type}<NK> {{"
+    )?;
+    writeln!(s, "    type Error = GenericTypedError<String, String>;")?;
+    writeln!(s, "")?;
+    writeln!(
+        s,
+        "    fn try_from(other: {parent_ty}<NK>) -> GenericTypedResult<Self, String, String> {{"
+    )?;
+    writeln!(s, "       Ok({node_type} {{")?;
     writeln!(s, "           id: other.id.into(),")?;
     for field_value in n.fields.iter() {
         let field_name = &field_value.name;
         let field_path = FieldPath::new_path(n.name.clone(), vec![field_name.clone()]);
-        let changes = changeset.get_changes(field_path);
-        let is_removed = changes
+        let changes = changeset.get_changes(field_path.clone());
+        let is_news = changes
             .iter()
             .any(|c| matches!(c, SingleChange::AddedField(_)));
-        if is_removed {
-            writeln!(s, "           {field_name}: Default::default()")?;
+        if is_news {
+            writeln!(s, "           {field_name}: Default::default(),")?;
         } else {
-            writeln!(s, "           {field_name}: other.{field_name}.into(),")?;
+            let mut need_manual_implementation = false;
+            let type_change = changes
+                .iter()
+                .filter_map(|c| {
+                    if let SingleChange::EditedFieldType(v) = c {
+                        Some(v)
+                    } else {
+                        None
+                    }
+                })
+                .next();
+            if let Some(type_change) = type_change {
+                if !type_change
+                    .old_type()
+                    .is_gen_compatible(type_change.new_type())
+                {
+                    // We cannot trust the auto generated conversion so a manual one should be made instead
+                    omit_convertion = true;
+                    need_manual_implementation = true;
+                }
+                if need_manual_implementation {
+                    writeln!(s, "           {field_name}: /* Insert convertion */,")?;
+                } else {
+                    writeln!(
+                        s,
+                        "           {field_name}: {},",
+                        type_change
+                            .old_type()
+                            .gen_convertion(format!("other.{field_name}"), true, type_change.new_type())
+                    )?;
+                }
+            } else {
+                writeln!(s, "           {field_name}: {},", field_value.field_type.gen_convertion(format!("other.{field_name}"), true, &field_value.field_type))?;
+            }
         }
     }
-    writeln!(s, "       }}")?;
+    writeln!(s, "       }})")?;
     writeln!(s, "    }}")?;
     writeln!(s, "}}")?;
 
-    Ok(s)
+    if omit_convertion {
+        Ok(format!("/*Requires manual implementation\n{s}*/"))
+    } else {
+        Ok(s)
+    }
 }

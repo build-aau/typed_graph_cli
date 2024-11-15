@@ -45,9 +45,9 @@ impl<I> FieldPath<I> {
     pub fn retrieve_field<'a>(
         &'a self,
         schema: &'a mut Schema<I>,
-    ) -> ChangeSetResult<&'a mut Fields<I>> 
+    ) -> ChangeSetResult<&'a mut Fields<I>>
     where
-        I: Ord
+        I: Ord,
     {
         if self.path.is_empty() {
             return Err(ChangeSetError::InvalidAction {

@@ -4,11 +4,11 @@ use super::{
 use crate::*;
 use build_script_lang::schema::{Schema, SchemaStm};
 use build_script_shared::parsers::Ident;
+use build_script_shared::parsers::ParserSerialize;
 use std::collections::HashSet;
 use std::fmt::{Debug, Write};
 use std::fs::create_dir;
 use std::path::Path;
-use build_script_shared::parsers::ParserSerialize;
 
 impl<I> CodeGenerator<targets::Rust> for Schema<I>
 where
@@ -84,9 +84,9 @@ fn write_content<I>(
     structs_folder: &Path,
     edges_folder: &Path,
     types_folder: &Path,
-) -> GenResult<()> 
+) -> GenResult<()>
 where
-    I: Ord
+    I: Ord,
 {
     // Write ./{nodes|edges|types}/{filename}.rs
     for stm in schema.iter() {
@@ -120,9 +120,9 @@ fn write_mod<I>(
     structs_folder: &Path,
     edges_folder: &Path,
     types_folder: &Path,
-) -> GenResult<()> 
+) -> GenResult<()>
 where
-    I: Ord
+    I: Ord,
 {
     // Write ./{nodes|edges|types}/mod.rs
     let nodes_mod_path = nodes_folder.join("mod.rs");
@@ -203,7 +203,11 @@ where
     writeln!(schema_mod, "#[allow(unused)]")?;
     writeln!(schema_mod, "pub use super::imports::*;")?;
 
-    writeln!(schema_mod, "pub const SCHEMA_DEFINITION: &'static str = r#\"{}\"#;", schema.serialize_to_string()?)?;
+    writeln!(
+        schema_mod,
+        "pub const SCHEMA_DEFINITION: &'static str = r#\"{}\"#;",
+        schema.serialize_to_string()?
+    )?;
 
     let imports_path = schema_folder.join("imports.rs");
     new_files.create_file(imports_path);
@@ -228,6 +232,8 @@ fn write_schema_impl_rs<I: Ord>(
     writeln!(schema_rs, "use std::marker::PhantomData;")?;
     writeln!(schema_rs, "use typed_graph::*;")?;
     writeln!(schema_rs, "use serde::{{Serialize, Deserialize}};")?;
+    writeln!(schema_rs, "use typed_graph::GenericTypedError;")?;
+    writeln!(schema_rs, "use std::str::FromStr;")?;
     writeln!(schema_rs, "")?;
     writeln!(schema_rs, "#[allow(unused)]")?;
     writeln!(
@@ -236,11 +242,14 @@ fn write_schema_impl_rs<I: Ord>(
     )?;
     writeln!(schema_rs, "")?;
     writeln!(schema_rs, "#[derive(Clone, Debug, Serialize, Deserialize)]")?;
+
+    writeln!(schema_rs, "#[serde(bound = \"NK: Clone, EK: Clone\")]")?;
+    writeln!(schema_rs, "#[serde(try_from = \"String\")]")?;
+    writeln!(schema_rs, "#[serde(into = \"String\")]")?;
     writeln!(schema_rs, "pub struct {schema_name}<NK, EK> {{")?;
     writeln!(schema_rs, "    ek: PhantomData<EK>,")?;
-    writeln!(schema_rs, "    nk: PhantomData<NK>")?;
+    writeln!(schema_rs, "    nk: PhantomData<NK>,")?;
     writeln!(schema_rs, "}}")?;
-
     writeln!(schema_rs, "")?;
     writeln!(
         schema_rs,
@@ -255,16 +264,16 @@ fn write_schema_impl_rs<I: Ord>(
 
     writeln!(schema_rs, "")?;
     writeln!(schema_rs, "    fn name(&self) -> String {{")?;
-    writeln!(schema_rs, "        \"{schema_version}\".to_string()")?;
+    writeln!(schema_rs, "        self.to_string()")?;
     writeln!(schema_rs, "    }}")?;
 
     writeln!(schema_rs, "")?;
     writeln!(
         schema_rs,
-        "fn allow_node(&self, _node_ty: NodeType) -> Result<(), DisAllowedNode> {{"
+        "    fn allow_node(&self, _node_ty: NodeType) -> Result<(), DisAllowedNode> {{"
     )?;
-    writeln!(schema_rs, "    Ok(())")?;
-    writeln!(schema_rs, "}}")?;
+    writeln!(schema_rs, "        Ok(())")?;
+    writeln!(schema_rs, "    }}")?;
 
     writeln!(schema_rs, "")?;
     writeln!(schema_rs, "    #[allow(unused_variables)]")?;
@@ -307,6 +316,62 @@ fn write_schema_impl_rs<I: Ord>(
     writeln!(schema_rs, "        }}")?;
     writeln!(schema_rs, "    }}")?;
     writeln!(schema_rs, "}}")?;
+    writeln!(schema_rs, "")?;
+    writeln!(
+        schema_rs,
+        "impl<NK, EK> TryFrom<String> for {schema_name}<NK, EK> {{"
+    )?;
+    writeln!(
+        schema_rs,
+        "    type Error = GenericTypedError<String, String>;"
+    )?;
+    writeln!(schema_rs, "")?;
+    writeln!(
+        schema_rs,
+        "    fn try_from(value: String) -> Result<Self, Self::Error> {{"
+    )?;
+    writeln!(schema_rs, "        value.parse()")?;
+    writeln!(schema_rs, "    }}")?;
+    writeln!(schema_rs, "}}")?;
+    writeln!(schema_rs, "")?;
+    writeln!(
+        schema_rs,
+        "impl<NK, EK> FromStr for {schema_name}<NK, EK> {{"
+    )?;
+    writeln!(
+        schema_rs,
+        "    type Err = GenericTypedError<String, String>;"
+    )?;
+    writeln!(schema_rs, "")?;
+    writeln!(
+        schema_rs,
+        "    fn from_str(value: &str) -> Result<Self, Self::Err> {{"
+    )?;
+    writeln!(schema_rs, "        let schema_name = Self::default().to_string();")?;
+    writeln!(schema_rs, "        if value != schema_name {{")?;
+    writeln!(
+        schema_rs,
+        "            return Err(GenericTypedError::InvalidSchemaName(value.to_string(), schema_name));"
+    )?;
+    writeln!(schema_rs, "        }}")?;
+    writeln!(schema_rs, "        Ok({schema_name}::default())")?;
+    writeln!(schema_rs, "    }}")?;
+    writeln!(schema_rs, "}}")?;
+    writeln!(schema_rs, "")?;
+    writeln!(
+        schema_rs,
+        "impl<NK, EK> Into<String> for {schema_name}<NK, EK> {{"
+    )?;
+    writeln!(schema_rs, "    fn into(self) -> String {{")?;
+    writeln!(schema_rs, "        self.to_string()")?;
+    writeln!(schema_rs, "    }}")?;
+    writeln!(schema_rs, "}}")?;
+    writeln!(schema_rs, "")?;
+    writeln!(schema_rs, "impl<NK, EK> ToString for {schema_name}<NK, EK> {{")?;
+    writeln!(schema_rs, "    fn to_string(&self) -> String {{")?;
+    writeln!(schema_rs, "        \"{schema_version}\".to_string()")?;
+    writeln!(schema_rs, "    }}")?;
+    writeln!(schema_rs, "}}")?;
 
     new_files.add_content(schema_path, schema_rs);
     Ok(())
@@ -334,35 +399,35 @@ pub(super) fn write_migrate_schema<I: Ord>(
     writeln!(s, "    NK: Key,")?;
     writeln!(s, "    EK: Key")?;
     writeln!(s, "{{")?;
-    writeln!(s, "    fn update_node(&self, _new_schema: &{new_schema_full_path}<NK, EK>, node: Self::N) -> Option<<{new_schema_full_path}<NK, EK> as SchemaExt<NK, EK>>::N> {{")?;
+    writeln!(s, "    fn update_node(&self, _new_schema: &{new_schema_full_path}<NK, EK>, node: Self::N) -> SchemaResult<Option<<{new_schema_full_path}<NK, EK> as SchemaExt<NK, EK>>::N>, NK, EK, {new_schema_full_path}<NK, EK>> {{")?;
     writeln!(s, "        match node {{")?;
     for n in old_schema.nodes() {
         let node_type = &n.name;
 
         if new_types.contains(&n.name) {
-            writeln!(s, "            Node::{node_type}(e) => Some({new_path}::{node_type}::from(e).into()),")?;
+            writeln!(s, "            Node::{node_type}(e) => Ok(Some({new_path}::Node::{node_type}(e.try_into().map_err(|e: GenericTypedError<String, String>| SchemaError::<NK, EK, {new_schema_full_path}<NK, EK>>::UnhandledMigrationError(e.to_string()))?))),")?;
         } else {
-            writeln!(s, "            Node::{node_type}(_) => None,")?;
+            writeln!(s, "            Node::{node_type}(_) => Ok(None),")?;
         }
     }
     writeln!(s, "           #[allow(unreachable_patterns)]")?;
-    writeln!(s, "           _ => None")?;
+    writeln!(s, "           _ => Ok(None)")?;
     writeln!(s, "        }}")?;
     writeln!(s, "    }}")?;
     writeln!(s, "")?;
-    writeln!(s, "    fn update_edge(&self, _new_schema: &{new_schema_full_path}<NK, EK>, edge: Self::E) -> Option<<{new_schema_full_path}<NK, EK> as SchemaExt<NK, EK>>::E> {{")?;
+    writeln!(s, "    fn update_edge(&self, _new_schema: &{new_schema_full_path}<NK, EK>, edge: Self::E) -> SchemaResult<Option<<{new_schema_full_path}<NK, EK> as SchemaExt<NK, EK>>::E>, NK, EK, {new_schema_full_path}<NK, EK>> {{")?;
     writeln!(s, "        match edge {{")?;
     for e in old_schema.edges() {
         let edge_type = &e.name;
 
         if new_types.contains(&e.name) {
-            writeln!(s, "            Edge::{edge_type}(e) => Some({new_path}::{edge_type}::from(e).into()),")?;
+            writeln!(s, "            Edge::{edge_type}(e) => Ok(Some({new_path}::Edge::{edge_type}(e.try_into().map_err(|e: GenericTypedError<String, String>| SchemaError::<NK, EK, {new_schema_full_path}<NK, EK>>::UnhandledMigrationError(e.to_string()))?))),")?;
         } else {
-            writeln!(s, "            Edge::{edge_type}(_) => None,")?;
+            writeln!(s, "            Edge::{edge_type}(_) => Ok(None),")?;
         }
     }
     writeln!(s, "            #[allow(unreachable_patterns)]")?;
-    writeln!(s, "            _ => None")?;
+    writeln!(s, "            _ => Ok(None)")?;
     writeln!(s, "        }}")?;
     writeln!(s, "    }}")?;
     writeln!(s, "")?;

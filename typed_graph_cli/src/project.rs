@@ -5,7 +5,7 @@ use build_script_shared::parsers::{
 };
 use build_script_shared::{BUILDScriptError, InputMarker};
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::fs::{create_dir_all, read_dir, read_to_string, remove_file};
+use std::fs::{create_dir_all, read_dir, read_to_string, remove_file, File};
 use std::path::{Component, Path, PathBuf};
 
 use crate::{GenError, GenResult};
@@ -332,14 +332,12 @@ impl Project {
     /// Save a schema to a file in the project folder
     pub fn save_schema(&self, schema: &String) -> GenResult<PathBuf> {
         let schema = self.get_schema(schema)?;
-
         let mut code_origin = HashMap::new();
-
         code_origin.insert(
             schema.marker().get_source(),
-            Schema::new(schema.version.clone(), Vec::new(), schema.marker().clone()),
+            Schema::new(schema.comments.clone(), schema.version.clone(), Vec::new(), schema.marker().clone()),
         );
-
+        
         for stm in schema.iter() {
             let origin = stm.marker().get_source();
             let origin_entry = code_origin.entry(origin).or_default();
@@ -354,15 +352,17 @@ impl Project {
             schema_path.pop();
             schema_path
         };
-
+        
         for (origin_path, schema) in code_origin {
             let origin_path = Path::new(origin_path);
             if !origin_path.exists() {
                 let mut folder_path = origin_path.to_path_buf();
                 folder_path.pop();
                 create_dir_all(folder_path)?;
-            }
 
+                File::create(origin_path)?;
+            }
+            
             schema.serialize_to_file(origin_path)?;
         }
 

@@ -89,7 +89,7 @@ impl<I: InputType> ParserDeserialize<I> for EditedVariant<I> {
                 type_name,
                 varient_name,
                 comments,
-                attributes
+                attributes,
             },
         ))
     }

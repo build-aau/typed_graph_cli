@@ -22,18 +22,17 @@ pub struct Quantifier<I> {
     marker: Mark<I>,
 }
 
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord, Dummy, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord, Dummy, Serialize, Deserialize,
+)]
 pub enum LowerBound {
     Zero,
-    One
+    One,
 }
 
 impl<I> Quantifier<I> {
     pub fn new(bounds: Option<(LowerBound, u32)>, marker: Mark<I>) -> Self {
-        Quantifier {
-            bounds,
-            marker,
-        }
+        Quantifier { bounds, marker }
     }
 
     /// Move from one input type to another
@@ -54,28 +53,25 @@ impl<I: InputType> ParserDeserialize<I> for Quantifier<I> {
         let (s, (res, marker)) = context(
             "Parsing Quantifier",
             marked(opt(surrounded(
-                '[', 
+                '[',
                 ws(tuple((
-                    context("Parsing lower bounds", alt((
-                        map(char('0'), |_| LowerBound::Zero),
-                        map(char('1'), |_| LowerBound::One)
-                    ))), 
-                    ws(pair(char('.'), char('.'))), 
-                    context("Parsin upper bounds", parsers::u32)
-                ))), 
-                ']'
+                    context(
+                        "Parsing lower bounds",
+                        alt((
+                            map(char('0'), |_| LowerBound::Zero),
+                            map(char('1'), |_| LowerBound::One),
+                        )),
+                    ),
+                    ws(pair(char('.'), char('.'))),
+                    context("Parsing upper bounds", parsers::u32),
+                ))),
+                ']',
             ))),
         )(s)?;
 
         let bounds = res.map(|(lower, _, upper)| (lower, upper));
 
-        Ok((
-            s,
-            Quantifier {
-                bounds,
-                marker,
-            },
-        ))
+        Ok((s, Quantifier { bounds, marker }))
     }
 }
 
@@ -85,7 +81,7 @@ impl<I> ParserSerialize for Quantifier<I> {
         match &self.bounds {
             Some((lower, upper)) => match lower {
                 LowerBound::Zero => write!(f, "{indents}[0..{upper}]")?,
-                LowerBound::One => write!(f, "{indents}[0..{upper}]")?,
+                LowerBound::One => write!(f, "{indents}[1..{upper}]")?,
             },
             None => (),
         }

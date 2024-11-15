@@ -22,22 +22,31 @@ impl<I> Attributes<I> {
     }
 
     pub fn is_skipped(&self) -> bool {
-        self
-            .get_functions("json")
+        self.get_functions("json")
             .iter()
             .any(|attr| attr.values.iter().any(|v| *v == "skip"))
     }
 
     pub fn is_untagged(&self) -> bool {
-        self
-            .get_functions("json")
+        self.get_functions("json")
             .iter()
             .any(|attr| attr.values.iter().any(|v| *v == "untagged"))
     }
 
+    pub fn is_default(&self) -> bool {
+        self.get_functions("json")
+            .iter()
+            .any(|attr| attr.values.iter().any(|v| *v == "default"))
+    }
+
+    pub fn has_derived_default(&self) -> bool {
+        self.get_functions("derive")
+            .iter()
+            .any(|attr| attr.values.iter().any(|v| *v == "default"))
+    }
+
     pub fn get_alias(&self) -> Vec<&Ident<I>> {
-        self
-            .get_key_value_functions("json")
+        self.get_key_value_functions("json")
             .into_iter()
             .filter(|kv| *kv.key == "alias")
             .map(|kv| &kv.value)
@@ -85,37 +94,43 @@ impl<I> Attributes<I> {
     pub fn check_attributes(
         &self,
         allow_key_value: &[&str],
-        allowed_functions: &[(&str, Option<usize>)],
-        allow_function_key_value: &[(&str, &str)]
+        allowed_functions: &[(&str, Option<usize>, Option<&[&str]>)],
+        allow_function_key_value: &[(&str, &str)],
     ) -> ParserSlimResult<I, ()>
     where
         I: Clone,
     {
         for attr in self.iter() {
             let allow_attribute = match attr {
-                Attribute::Function(attr) => {
-                    allowed_functions
-                        .iter()
-                        .any(|(s, size)| *attr.key == *s && size.map_or_else(|| true, |s| attr.values.len() == s))
-                },
-                Attribute::KeyValue(attr) => {
-                    allow_key_value.iter().any(|name| *attr.key == *name)
-                },
-                Attribute::FunctionKeyValue(attr) => {
-                    allow_function_key_value.iter().any(|(name, key)| *attr.key == *key && *attr.name == *name)
-                }
+                Attribute::Function(attr) => allowed_functions.iter().any(|(s, size, _)| {
+                    *attr.key == *s && size.map_or_else(|| true, |s| attr.values.len() == s)
+                }),
+                Attribute::KeyValue(attr) => allow_key_value.iter().any(|name| *attr.key == *name),
+                Attribute::FunctionKeyValue(attr) => allow_function_key_value
+                    .iter()
+                    .any(|(name, key)| *attr.key == *key && *attr.name == *name),
             };
 
             if !allow_attribute {
-                let f_attr = allowed_functions
-                    .iter()
-                    .map(|(s, size)| format!("{}(*{:?})", s, size))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-
                 let kv_attr = allow_key_value
                     .iter()
                     .map(|name| format!("{}=?", name))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+
+                let f_attr = allowed_functions
+                    .iter()
+                    .map(|(s, size, values)| {
+                        format!(
+                            "{}({}{})",
+                            s,
+                            values
+                                .map(|v| format!("({})", v.join("|")))
+                                .unwrap_or_else(|| ".*".to_string()),
+                            size.map(|v| format!("[0-{v}]"))
+                                .unwrap_or_else(|| "[0]".to_string())
+                        )
+                    })
                     .collect::<Vec<_>>()
                     .join(", ");
 
@@ -127,7 +142,10 @@ impl<I> Attributes<I> {
 
                 return Err(Err::Failure(ParserError::new_at(
                     attr,
-                    ParserErrorKind::InvalidAttribute(format!("{}|{}|{}", kv_attr, f_attr, f_kv_attr)),
+                    ParserErrorKind::InvalidAttribute(format!(
+                        "{}|{}|{}",
+                        kv_attr, f_attr, f_kv_attr
+                    )),
                 )));
             }
         }
@@ -219,7 +237,10 @@ impl<I: Dummy<Faker>> Dummy<AllowedFunctionAttribute> for Attributes<I> {
 }
 
 impl<I: Dummy<Faker>> Dummy<AllowedFunctionKeyValueAttribute> for Attributes<I> {
-    fn dummy_with_rng<R: Rng + ?Sized>(config: &AllowedFunctionKeyValueAttribute, rng: &mut R) -> Self {
+    fn dummy_with_rng<R: Rng + ?Sized>(
+        config: &AllowedFunctionKeyValueAttribute,
+        rng: &mut R,
+    ) -> Self {
         let len = rng.gen_range(0..ATTRIBUTES_DUMMY_LENTGH);
 
         Attributes {

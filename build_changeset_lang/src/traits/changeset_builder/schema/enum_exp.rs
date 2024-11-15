@@ -2,8 +2,8 @@ use build_script_lang::schema::EnumExp;
 use build_script_lang::schema::EnumVarient;
 use build_script_lang::schema::Fields;
 use build_script_lang::schema::SchemaStmType;
+use build_script_lang::schema::Visibility;
 use build_script_shared::parsers::Attributes;
-use build_script_shared::parsers::Types;
 
 use crate::schema::*;
 use crate::traits::ChangeSetBuilder;
@@ -44,7 +44,7 @@ where
             let attributes = match varient {
                 EnumVarient::Struct { attributes, .. }
                 | EnumVarient::Opaque { attributes, .. }
-                | EnumVarient::Unit { attributes, .. } => attributes
+                | EnumVarient::Unit { attributes, .. } => attributes,
             };
 
             added_varients.push(SingleChange::AddedVarient(AddedVarient {
@@ -59,13 +59,13 @@ where
             if let EnumVarient::Struct { fields, name, .. } = varient {
                 let new_path = FieldPath::new_path(self.name.clone(), vec![name.clone()]);
 
-                let field_changes = Fields::default().build_changeset_with_path(fields, Some(new_path))?;
-                
+                let field_changes =
+                    Fields::default().build_changeset_with_path(fields, Some(new_path))?;
+
                 for change in field_changes.changes {
                     added_varients.push(change);
                 }
             };
-
         }
 
         // Check which varients are old
@@ -132,8 +132,18 @@ where
                             order: order as u64,
                         }));
                     }
-                    (EnumVarient::Opaque { .. }, EnumVarient::Struct { fields, attributes, .. })
-                    | (EnumVarient::Unit { .. }, EnumVarient::Struct { fields, attributes, .. }) => {
+                    (
+                        EnumVarient::Opaque { .. },
+                        EnumVarient::Struct {
+                            fields, attributes, ..
+                        },
+                    )
+                    | (
+                        EnumVarient::Unit { .. },
+                        EnumVarient::Struct {
+                            fields, attributes, ..
+                        },
+                    ) => {
                         edited_varients.push(SingleChange::RemovedVarient(RemovedVarient {
                             type_name: self.name.clone(),
                             varient_name: varient.name().clone(),
@@ -193,8 +203,35 @@ where
                             order: order as u64,
                         }));
                     }
-                    (EnumVarient::Opaque { .. }, EnumVarient::Opaque { ty, attributes, .. }) => {
+                    (
+                        EnumVarient::Opaque {
+                            ty: old_ty, name, ..
+                        },
+                        EnumVarient::Opaque {
+                            ty,
+                            attributes,
+                            comments,
+                            ..
+                        },
+                    ) => {
                         // TODO: Get this to modify the data not jsut replace it
+                        if old_ty != ty {
+                            edited_varients.push(SingleChange::EditedFieldType(EditedField {
+                                field_path: FieldPath {
+                                    root: self.name.clone(),
+                                    path: vec![name.clone()],
+                                },
+                                comments: comments.get_doc_comments(),
+                                attributes: attributes.clone(),
+                                old_visibility: Visibility::Local,
+                                new_visibility: Visibility::Local,
+                                old_type: old_ty.clone(),
+                                new_order: 0,
+                                new_type: ty.clone(),
+                                old_order: 0,
+                            }));
+                        }
+                        /*
                         edited_varients.push(SingleChange::RemovedVarient(RemovedVarient {
                             type_name: self.name.clone(),
                             varient_name: varient.name().clone(),
@@ -207,6 +244,7 @@ where
                             varient_type: AddedVarientType::Opaque(ty.clone()),
                             order: order as u64,
                         }));
+                        */
                     }
                 }
             }
@@ -243,7 +281,9 @@ where
 
         for varient in &self.varients {
             if let Some(new_varient) = new_version.get_varient(varient.name()) {
-                if varient.comments() != new_varient.comments() || varient.attributes() != new_varient.attributes() {
+                if varient.comments() != new_varient.comments()
+                    || varient.attributes() != new_varient.attributes()
+                {
                     edited_type.push(SingleChange::EditedVariant(EditedVariant {
                         type_name: self.name.clone(),
                         varient_name: varient.name().clone(),

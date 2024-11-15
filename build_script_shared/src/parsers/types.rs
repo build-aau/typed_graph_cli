@@ -58,6 +58,11 @@ pub enum Types<I> {
         #[serde(skip)]
         marker: Mark<I>,
     },
+    Set {
+        inner: Box<Types<I>>,
+        #[serde(skip)]
+        marker: Mark<I>,
+    },
     Map {
         key: Box<Types<I>>,
         value: Box<Types<I>>,
@@ -97,6 +102,7 @@ impl<I> Types<I> {
             | Types::I8(_) => Ok(()),
             Types::Option { inner, .. } => inner.check_types(reference_types),
             Types::List { inner, .. } => inner.check_types(reference_types),
+            Types::Set { inner, .. } => inner.check_types(reference_types),
             Types::Map { key, value, .. } => key
                 .check_types(reference_types)
                 .and_then(|_| value.check_types(reference_types)),
@@ -175,6 +181,9 @@ impl<I> Types<I> {
             Types::List { inner, .. } => {
                 inner.check_cycle(type_name, type_generics, dependency_graph)
             }
+            Types::Set { inner, .. } => {
+                inner.check_cycle(type_name, type_generics, dependency_graph)
+            }
             Types::Map { key, value, .. } => {
                 key.check_cycle(type_name, type_generics, dependency_graph)?;
                 value.check_cycle(type_name, type_generics, dependency_graph)?;
@@ -227,6 +236,7 @@ impl<I> Types<I> {
             | Types::I8(_) => (),
             Types::Option { inner, .. } => inner.remove_used(reference_types),
             Types::List { inner, .. } => inner.remove_used(reference_types),
+            Types::Set { inner, .. } => inner.remove_used(reference_types),
             Types::Map { key, value, .. } => {
                 key.remove_used(reference_types);
                 value.remove_used(reference_types);
@@ -266,7 +276,11 @@ impl<I> Types<I> {
                 inner: inner.map_reference(f).into(),
                 marker,
             },
-            Types::List { inner, marker } => Types::Option {
+            Types::List { inner, marker } => Types::List {
+                inner: inner.map_reference(f).into(),
+                marker,
+            },
+            Types::Set { inner, marker } => Types::Set {
                 inner: inner.map_reference(f).into(),
                 marker,
             },
@@ -315,6 +329,10 @@ impl<I> Types<I> {
                 marker: marker.map(f),
             },
             Types::List { inner, marker } => Types::List {
+                inner: inner.map(f).into(),
+                marker: marker.map(f),
+            },
+            Types::Set { inner, marker } => Types::Set {
                 inner: inner.map(f).into(),
                 marker: marker.map(f),
             },
@@ -376,16 +394,11 @@ impl<I> Types<I> {
             | (Types::I64(_), Types::I64(_)) => true,
 
             // Reference types only works if their inner types can be converted
-            (
-                Types::Option{inner: linner, .. },
-                Types::Option{inner: rinner, .. }
-            ) => {
-                linner.check_convertion(&rinner)
-            }
-            (
-                Types::List{inner: linner, .. },
-                Types::List{inner: rinner, .. }
-            ) => {
+            (Types::Option{inner: linner, .. }, Types::Option{inner: rinner, .. })
+            | (Types::List{inner: linner, .. }, Types::List{inner: rinner, .. })
+            | (Types::Set{inner: linner, .. }, Types::Set{inner: rinner, .. })
+            | (Types::List{inner: linner, .. }, Types::Set{inner: rinner, .. })
+            | (Types::Set{inner: linner, .. }, Types::List{inner: rinner, .. }) => {
                 linner.check_convertion(&rinner)
             }
             (
@@ -393,6 +406,10 @@ impl<I> Types<I> {
                 Types::Map{key: rkey, value: rvalue, ..}
             ) => {
                 lkey.check_convertion(&rkey) && lvalue.check_convertion(&rvalue)
+            }
+
+            (t, Types::Option { inner, .. }) => {
+                t.check_convertion(inner)
             }
 
             // All convertion of external types are left entirely to the user to handler
@@ -413,14 +430,18 @@ impl<I> Types<I> {
         } else {
             // Find the type responsible for not allowing convertion
             match (self, other) {
-                (Types::Option { inner: linner, .. }, Types::Option { inner: rinner, .. }) => {
+                (Types::Option { inner: linner, .. }, Types::Option { inner: rinner, .. })
+                | (Types::List { inner: linner, .. }, Types::List { inner: rinner, .. })
+                | (Types::Set { inner: linner, .. }, Types::Set { inner: rinner, .. })
+                | (Types::Set { inner: linner, .. }, Types::List { inner: rinner, .. })
+                | (Types::List { inner: linner, .. }, Types::Set { inner: rinner, .. }) => {
                     let res = linner.check_convertion_res(&rinner);
                     if res.is_err() {
                         return res;
                     }
                 }
-                (Types::List { inner: linner, .. }, Types::List { inner: rinner, .. }) => {
-                    let res = linner.check_convertion_res(&rinner);
+                (t, Types::Option { inner, .. }) => {
+                    let res = t.check_convertion_res(&inner);
                     if res.is_err() {
                         return res;
                     }
@@ -477,6 +498,16 @@ impl<I: InputType> ParserDeserialize<I> for Types<I> {
                         not(Ident::ident_full),
                     )),
                     |(ty, marker)| Types::List {
+                        inner: ty.into(),
+                        marker,
+                    },
+                ),
+                map(
+                    marked(terminated(
+                        preceded(tag("Set"), surrounded('<', cut(Types::parse), '>')),
+                        not(Ident::ident_full),
+                    )),
+                    |(ty, marker)| Types::Set {
                         inner: ty.into(),
                         marker,
                     },
@@ -598,6 +629,7 @@ impl<I> ParserSerialize for Types<I> {
             Types::I8(_) => write!(f, "i8")?,
             Types::Option { inner, .. } => write!(f, "Option<{inner}>")?,
             Types::List { inner, .. } => write!(f, "List<{inner}>")?,
+            Types::Set { inner, .. } => write!(f, "Set<{inner}>")?,
             Types::Map { key, value, .. } => write!(f, "Map<{key}, {value}>")?,
             Types::Reference {
                 inner, generics, ..
@@ -639,10 +671,10 @@ impl<I> PartialEq for Types<I> {
             | (Types::I32(_), Types::I32(_))
             | (Types::I16(_), Types::I16(_))
             | (Types::I8(_), Types::I8(_)) => true,
-            (Types::List { inner: inner0, .. }, Types::List { inner: inner1, .. }) => {
-                inner0.eq(inner1)
-            }
-            (Types::Option { inner: inner0, .. }, Types::Option { inner: inner1, .. }) => {
+
+            (Types::Option { inner: inner0, .. }, Types::Option { inner: inner1, .. })
+            | (Types::List { inner: inner0, .. }, Types::List { inner: inner1, .. })
+            | (Types::Set { inner: inner0, .. }, Types::Set { inner: inner1, .. }) => {
                 inner0.eq(inner1)
             }
             (
@@ -695,6 +727,7 @@ impl<I> Display for Types<I> {
             Types::I8(_) => write!(f, "i8"),
             Types::Option { inner, .. } => write!(f, "Option<{inner}>"),
             Types::List { inner, .. } => write!(f, "List<{inner}>"),
+            Types::Set { inner, .. } => write!(f, "Set<{inner}>"),
             Types::Map { key, value, .. } => write!(f, "Map<{key}, {value}>"),
             Types::Reference {
                 inner, generics, ..
@@ -723,24 +756,25 @@ impl<I> Display for Types<I> {
 impl<I> Marked<I> for Types<I> {
     fn marker(&self) -> &Mark<I> {
         match self {
-            Types::String(marker) => &marker,
-            Types::Bool(marker) => &marker,
-            Types::F64(marker) => &marker,
-            Types::F32(marker) => &marker,
-            Types::Usize(marker) => &marker,
-            Types::U64(marker) => &marker,
-            Types::U32(marker) => &marker,
-            Types::U16(marker) => &marker,
-            Types::U8(marker) => &marker,
-            Types::Isize(marker) => &marker,
-            Types::I64(marker) => &marker,
-            Types::I32(marker) => &marker,
-            Types::I16(marker) => &marker,
-            Types::I8(marker) => &marker,
-            Types::Option { marker, .. } => &marker,
-            Types::List { marker, .. } => &marker,
-            Types::Map { marker, .. } => &marker,
-            Types::Reference { marker, .. } => marker,
+            Types::String(marker)
+            | Types::Bool(marker)
+            | Types::F64(marker)
+            | Types::F32(marker)
+            | Types::Usize(marker)
+            | Types::U64(marker)
+            | Types::U32(marker)
+            | Types::U16(marker)
+            | Types::U8(marker)
+            | Types::Isize(marker)
+            | Types::I64(marker)
+            | Types::I32(marker)
+            | Types::I16(marker)
+            | Types::I8(marker)
+            | Types::Option { marker, .. }
+            | Types::List { marker, .. }
+            | Types::Set { marker, .. }
+            | Types::Map { marker, .. }
+            | Types::Reference { marker, .. } => marker,
         }
     }
 }
@@ -770,8 +804,9 @@ impl TypeReferenceMap {
             | Types::I32(_)
             | Types::I16(_)
             | Types::I8(_) => (),
-            Types::Option { inner, .. } => self.pick_valid_reference_type(inner, rng),
-            Types::List { inner, .. } => self.pick_valid_reference_type(inner, rng),
+            Types::Option { inner, .. }
+            | Types::List { inner, .. }
+            | Types::Set { inner, .. } => self.pick_valid_reference_type(inner, rng),
             Types::Map { key, value, .. } => {
                 self.pick_valid_reference_type(key, rng);
                 self.pick_valid_reference_type(value, rng);
@@ -822,7 +857,7 @@ impl<I: Dummy<Faker>> Dummy<Faker> for Types<I> {
                 8 => Types::I16(Mark::dummy_with_rng(&Faker, rng)),
                 9 | _ => Types::I8(Mark::dummy_with_rng(&Faker, rng)),
             },
-            3 => match rng.gen_range(0..4) {
+            3 => match rng.gen_range(0..5) {
                 0 => Types::Map {
                     key: Box::new(Types::dummy_with_rng(&Faker, rng)),
                     value: Box::new(Types::dummy_with_rng(&Faker, rng)),
@@ -832,11 +867,15 @@ impl<I: Dummy<Faker>> Dummy<Faker> for Types<I> {
                     inner: Box::new(Types::dummy_with_rng(&Faker, rng)),
                     marker: Mark::dummy_with_rng(&Faker, rng),
                 },
-                2 => Types::Option {
+                2 => Types::Set {
                     inner: Box::new(Types::dummy_with_rng(&Faker, rng)),
                     marker: Mark::dummy_with_rng(&Faker, rng),
                 },
-                3 | _ => Types::Reference {
+                3 => Types::Option {
+                    inner: Box::new(Types::dummy_with_rng(&Faker, rng)),
+                    marker: Mark::dummy_with_rng(&Faker, rng),
+                },
+                4 | _ => Types::Reference {
                     inner: Ident::dummy_with_rng(&Faker, rng),
                     generics: (0..3)
                         .map(|_| Box::new(Types::dummy_with_rng(&Faker, rng)))

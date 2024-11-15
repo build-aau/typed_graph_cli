@@ -5,7 +5,10 @@ use super::{FieldWithReferences, Fields};
 use build_script_shared::dependency_graph::DependencyGraph;
 use build_script_shared::error::{ParserError, ParserErrorKind, ParserSlimResult};
 use build_script_shared::parsers::{
-    marked, surrounded, ws, AllowedAttributes, AllowedFunctionAttribute, AllowedFunctionKeyValueAttribute, AllowedKeyValueAttribute, Attributes, Comments, ComposeContext, Ident, Mark, Marked, ParserDeserialize, ParserSerialize, TypeReferenceMap, Types
+    marked, surrounded, ws, AllowedAttributes, AllowedFunctionAttribute,
+    AllowedFunctionKeyValueAttribute, AllowedKeyValueAttribute, Attributes, Comments,
+    ComposeContext, Ident, Mark, Marked, ParserDeserialize, ParserSerialize, TypeReferenceMap,
+    Types,
 };
 use build_script_shared::{compose_test, InputType};
 use fake::{Dummy, Fake, Faker};
@@ -17,17 +20,21 @@ use nom::Err;
 use serde::{Deserialize, Serialize};
 
 const JSON: &str = "json";
+const DERIVE: &str = "derive";
 
-const ALLOWED_FUNCTION_KEY_VALUE_ATTRIBUTES: &[(&str, &str)] = &[
-    (JSON, "alias"), 
-];
+const ALLOWED_FUNCTION_KEY_VALUE_ATTRIBUTES: &[(&str, &str)] = &[(JSON, "alias")];
 
-const ALLOWED_FUNCTION_ATTRIBUTE_VALUES: &[&str] = &[
-    "untagged"
-];
+const ALLOWED_JSON_FUNCTION_ATTRIBUTE_VALUES: &[&str] = &["untagged"];
 
-const ALLOWED_FUNCTION_ATTRIBUTES: &[(&str, Option<usize>)] = &[
-    (JSON, Some(1)), 
+const ALLOWED_DERIVED_FUNCTION_ATTRIBUTE_VALUES: &[&str] = &["default"];
+
+const ALLOWED_FUNCTION_ATTRIBUTES: &[(&str, Option<usize>, Option<&[&str]>)] = &[
+    (JSON, Some(1), Some(ALLOWED_JSON_FUNCTION_ATTRIBUTE_VALUES)),
+    (
+        DERIVE,
+        None,
+        Some(ALLOWED_DERIVED_FUNCTION_ATTRIBUTE_VALUES),
+    ),
 ];
 
 #[derive(PartialEq, Eq, Hash, Debug, Clone, PartialOrd, Ord, Serialize, Deserialize)]
@@ -36,7 +43,7 @@ pub enum EnumVarient<I> {
     // Quick note: I did implement Tuple enum and they worked
     // However there was no good way of making changesets.
     // if people made a new schema with a new field in the middle of the tuple
-    // then i basicly invalidaded all the fields after it as there was no way of knowing
+    // then it basicly invalidaded all the fields after it as there was no way of knowing
     // where to retrieve the previous versions fields from
     Struct {
         name: Ident<I>,
@@ -95,7 +102,7 @@ impl<I> EnumVarient<I> {
         match self {
             EnumVarient::Struct { attributes, .. } => attributes,
             EnumVarient::Unit { attributes, .. } => attributes,
-            EnumVarient::Opaque { attributes, .. } => attributes
+            EnumVarient::Opaque { attributes, .. } => attributes,
         }
     }
 
@@ -103,7 +110,7 @@ impl<I> EnumVarient<I> {
         match self {
             EnumVarient::Struct { attributes, .. } => attributes,
             EnumVarient::Unit { attributes, .. } => attributes,
-            EnumVarient::Opaque { attributes, .. } => attributes
+            EnumVarient::Opaque { attributes, .. } => attributes,
         }
     }
 
@@ -191,10 +198,12 @@ impl<I> EnumVarient<I> {
         I: Clone,
     {
         match self {
-            EnumVarient::Struct { attributes, fields, .. } => {
+            EnumVarient::Struct {
+                attributes, fields, ..
+            } => {
                 EnumVarient::check_varient_attributes(attributes)?;
                 fields.check_attributes()?;
-            },
+            }
             EnumVarient::Opaque { attributes, .. } => {
                 EnumVarient::check_varient_attributes(attributes)?;
             }
@@ -210,19 +219,48 @@ impl<I> EnumVarient<I> {
         I: Clone,
     {
         attributes.check_attributes(
-            &[], 
-            ALLOWED_FUNCTION_ATTRIBUTES, 
-            ALLOWED_FUNCTION_KEY_VALUE_ATTRIBUTES
+            &[],
+            ALLOWED_FUNCTION_ATTRIBUTES,
+            ALLOWED_FUNCTION_KEY_VALUE_ATTRIBUTES,
         )?;
 
         let json_functions = attributes.get_functions(JSON);
         for func in json_functions {
             if let Some(tag) = func.values.get(0) {
-                if !ALLOWED_FUNCTION_ATTRIBUTE_VALUES.contains(&tag.as_str()) {
-                    return Err(Err::Failure(ParserError::new_at(tag, ParserErrorKind::InvalidAttribute(format!("{}", ALLOWED_FUNCTION_ATTRIBUTE_VALUES.join(","))))));
+                if !ALLOWED_JSON_FUNCTION_ATTRIBUTE_VALUES.contains(&tag.as_str()) {
+                    return Err(Err::Failure(ParserError::new_at(
+                        tag,
+                        ParserErrorKind::InvalidAttribute(format!(
+                            "{}",
+                            ALLOWED_JSON_FUNCTION_ATTRIBUTE_VALUES.join(",")
+                        )),
+                    )));
                 }
             } else {
-                return Err(Err::Failure(ParserError::new_at(func, ParserErrorKind::InvalidAttribute(format!("Expected 1 argument")))));
+                return Err(Err::Failure(ParserError::new_at(
+                    func,
+                    ParserErrorKind::InvalidAttribute(format!("Expected 1 argument")),
+                )));
+            }
+        }
+
+        let derive_functions = attributes.get_functions(DERIVE);
+        for func in derive_functions {
+            if let Some(tag) = func.values.get(0) {
+                if !ALLOWED_DERIVED_FUNCTION_ATTRIBUTE_VALUES.contains(&tag.as_str()) {
+                    return Err(Err::Failure(ParserError::new_at(
+                        tag,
+                        ParserErrorKind::InvalidAttribute(format!(
+                            "{}",
+                            ALLOWED_DERIVED_FUNCTION_ATTRIBUTE_VALUES.join(",")
+                        )),
+                    )));
+                }
+            } else {
+                return Err(Err::Failure(ParserError::new_at(
+                    func,
+                    ParserErrorKind::InvalidAttribute(format!("Expected 1 argument")),
+                )));
             }
         }
 
@@ -332,7 +370,7 @@ impl<I> ParserSerialize for EnumVarient<I> {
                 name.compose(f, ctx)?;
                 write!(f, " ")?;
                 fields.compose(f, ctx)?;
-            },
+            }
             EnumVarient::Opaque {
                 name,
                 comments,
@@ -347,7 +385,12 @@ impl<I> ParserSerialize for EnumVarient<I> {
                 ty.compose(f, ctx)?;
                 write!(f, ")")?;
             }
-            EnumVarient::Unit { name, comments, attributes, .. } => {
+            EnumVarient::Unit {
+                name,
+                comments,
+                attributes,
+                ..
+            } => {
                 comments.compose(f, ctx)?;
                 attributes.compose(f, ctx)?;
                 name.compose(f, ctx)?;
@@ -408,9 +451,10 @@ impl<I: Dummy<Faker>> Dummy<Faker> for EnumVarient<I> {
                     EnumVarient::Struct {
                         attributes: AllowedAttributes(
                             AllowedKeyValueAttribute(&[]),
-                            AllowedFunctionAttribute(ALLOWED_FUNCTION_ATTRIBUTES), 
-                            AllowedFunctionKeyValueAttribute(ALLOWED_FUNCTION_KEY_VALUE_ATTRIBUTES)
-                        ).fake_with_rng(rng),
+                            AllowedFunctionAttribute(ALLOWED_FUNCTION_ATTRIBUTES),
+                            AllowedFunctionKeyValueAttribute(ALLOWED_FUNCTION_KEY_VALUE_ATTRIBUTES),
+                        )
+                        .fake_with_rng(rng),
                         name: Dummy::dummy_with_rng(config, rng),
                         comments: Dummy::dummy_with_rng(config, rng),
                         fields,
@@ -419,10 +463,11 @@ impl<I: Dummy<Faker>> Dummy<Faker> for EnumVarient<I> {
                 } else {
                     EnumVarient::Unit {
                         attributes: AllowedAttributes(
-                            AllowedKeyValueAttribute(&[]), 
-                            AllowedFunctionAttribute(ALLOWED_FUNCTION_ATTRIBUTES), 
-                            AllowedFunctionKeyValueAttribute(ALLOWED_FUNCTION_KEY_VALUE_ATTRIBUTES)
-                        ).fake_with_rng(rng),
+                            AllowedKeyValueAttribute(&[]),
+                            AllowedFunctionAttribute(ALLOWED_FUNCTION_ATTRIBUTES),
+                            AllowedFunctionKeyValueAttribute(ALLOWED_FUNCTION_KEY_VALUE_ATTRIBUTES),
+                        )
+                        .fake_with_rng(rng),
                         name: Dummy::dummy_with_rng(config, rng),
                         comments: Dummy::dummy_with_rng(config, rng),
                         marker: Dummy::dummy_with_rng(config, rng),
@@ -435,9 +480,10 @@ impl<I: Dummy<Faker>> Dummy<Faker> for EnumVarient<I> {
                 EnumVarient::Opaque {
                     attributes: AllowedAttributes(
                         AllowedKeyValueAttribute(&[]),
-                        AllowedFunctionAttribute(ALLOWED_FUNCTION_ATTRIBUTES), 
-                        AllowedFunctionKeyValueAttribute(ALLOWED_FUNCTION_KEY_VALUE_ATTRIBUTES)
-                    ).fake_with_rng(rng),
+                        AllowedFunctionAttribute(ALLOWED_FUNCTION_ATTRIBUTES),
+                        AllowedFunctionKeyValueAttribute(ALLOWED_FUNCTION_KEY_VALUE_ATTRIBUTES),
+                    )
+                    .fake_with_rng(rng),
                     name: Dummy::dummy_with_rng(config, rng),
                     comments: Dummy::dummy_with_rng(config, rng),
                     ty,
@@ -446,10 +492,11 @@ impl<I: Dummy<Faker>> Dummy<Faker> for EnumVarient<I> {
             }
             _ => EnumVarient::Unit {
                 attributes: AllowedAttributes(
-                    AllowedKeyValueAttribute(&[]), 
-                    AllowedFunctionAttribute(ALLOWED_FUNCTION_ATTRIBUTES), 
-                    AllowedFunctionKeyValueAttribute(ALLOWED_FUNCTION_KEY_VALUE_ATTRIBUTES)
-                ).fake_with_rng(rng),
+                    AllowedKeyValueAttribute(&[]),
+                    AllowedFunctionAttribute(ALLOWED_FUNCTION_ATTRIBUTES),
+                    AllowedFunctionKeyValueAttribute(ALLOWED_FUNCTION_KEY_VALUE_ATTRIBUTES),
+                )
+                .fake_with_rng(rng),
                 name: Dummy::dummy_with_rng(config, rng),
                 comments: Dummy::dummy_with_rng(config, rng),
                 marker: Dummy::dummy_with_rng(config, rng),

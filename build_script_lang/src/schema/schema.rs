@@ -24,17 +24,20 @@ pub type DefaultSchema<'a> = Schema<InputMarkerRef<'a>>;
 #[serde(bound = "I: Default + Clone")]
 pub struct Schema<I> {
     pub version: Ident<I>,
+    #[serde(flatten)]
+    pub comments: Comments,
     content: Vec<SchemaStm<I>>,
     #[serde(skip)]
     marker: Mark<I>,
 }
 
 impl<I> Schema<I> {
-    pub fn new(version: Ident<I>, content: Vec<SchemaStm<I>>, marker: Mark<I>) -> Self
+    pub fn new(comments: Comments, version: Ident<I>, content: Vec<SchemaStm<I>>, marker: Mark<I>) -> Self
     where
         I: Ord,
     {
         Schema {
+            comments,
             version,
             content: content.into_iter().collect(),
             marker,
@@ -71,12 +74,9 @@ impl<I> Schema<I> {
 
     pub fn remove<S>(&mut self, stm: S) -> Option<SchemaStm<I>>
     where
-        S: PartialEq<SchemaStm<I>>
+        S: PartialEq<SchemaStm<I>>,
     {
-        let idx = self
-            .content
-            .iter()
-            .position(|ty| &stm == ty)?;
+        let idx = self.content.iter().position(|ty| &stm == ty)?;
 
         Some(self.content.remove(idx))
     }
@@ -100,6 +100,19 @@ impl<I> Schema<I> {
     {
         self.iter().filter_map(|stm| {
             if let SchemaStm::Struct(n) = stm {
+                Some(n)
+            } else {
+                None
+            }
+        })
+    }
+
+    pub fn imports(&self) -> impl Iterator<Item = &ImportExp<I>>
+    where
+        I: Ord,
+    {
+        self.iter().filter_map(|stm| {
+            if let SchemaStm::Import(n) = stm {
                 Some(n)
             } else {
                 None
@@ -305,11 +318,14 @@ impl<I> Schema<I> {
         }
     }
 
-    pub fn get_type(
+    pub fn get_type<T>(
         &self,
         stm_type: Option<SchemaStmType>,
-        name: &Ident<I>,
-    ) -> Option<&SchemaStm<I>> {
+        name: &T,
+    ) -> Option<&SchemaStm<I>> 
+    where 
+        Ident<I>: PartialEq<T>
+    {
         for stm in &self.content {
             let is_allowed_type = stm_type
                 .map(|ty| ty == stm.get_schema_type())
@@ -348,6 +364,7 @@ impl<I> Schema<I> {
         F: FnMut(I) -> O + Copy,
     {
         Schema {
+            comments: self.comments,
             version: self.version.map(f),
             content: self.content.into_iter().map(|stm| stm.map(f)).collect(),
             marker: self.marker.map(f),
@@ -369,7 +386,8 @@ impl<I> Schema<I> {
         I: InputType,
     {
         move |s: I| {
-            let (s, header) = if requires_header {
+            let (s, header, comments) = if requires_header {
+                let (s, comments) = Comments::parse(s)?;
                 let (s, header) = context(
                     "Parsing Schema version",
                     surrounded('<', ws(Ident::ident_full), '>'),
@@ -382,9 +400,9 @@ impl<I> Schema<I> {
                     )));
                 }
 
-                (s, header)
+                (s, header, comments)
             } else {
-                (s, Ident::new_alone(""))
+                (s, Ident::new_alone(""), Comments::new(Default::default()))
             };
 
             let (s, (content, marker)) = context(
@@ -396,6 +414,7 @@ impl<I> Schema<I> {
             )(s)?;
 
             let schema = Schema {
+                comments,
                 version: header,
                 content,
                 marker,
@@ -408,6 +427,7 @@ impl<I> Schema<I> {
 
 impl<I: Ord + Hash + Debug> Hash for Schema<I> {
     fn hash<H: Hasher>(&self, state: &mut H) {
+        self.comments.hash(state);
         self.version.hash(state);
         let content: Vec<_> = self.iter().collect();
         content.hash(state);
@@ -419,7 +439,7 @@ impl<I: Ord> PartialEq for Schema<I> {
         let own_content: Vec<_> = self.iter().collect();
         let other_content: Vec<_> = other.iter().collect();
 
-        self.version.eq(&other.version) && own_content == other_content
+        self.comments.eq(&other.comments) && self.version.eq(&other.version) && own_content == other_content
     }
 }
 
@@ -442,6 +462,7 @@ impl<I: InputType> ParserDeserialize<I> for Schema<I> {
 impl<I> ParserSerialize for Schema<I> {
     fn compose<W: std::fmt::Write>(&self, f: &mut W, ctx: ComposeContext) -> ComposerResult<()> {
         if !self.version.is_empty() {
+            self.comments.compose(f, ctx)?;
             writeln!(f, "<{}>", self.version)?;
         }
 
@@ -546,6 +567,7 @@ impl<I: Dummy<Faker> + Clone> Dummy<Faker> for Schema<I> {
         }
 
         Schema {
+            comments: Comments::dummy_with_rng(&Faker, rng),
             version: Ident::dummy_with_rng(config, rng),
             content: content_type
                 .into_iter()
@@ -593,8 +615,10 @@ fn schema_reorder_hash_test() {
 
     let version = Ident::dummy(&Faker);
     let mark: Mark<String> = Mark::dummy(&Faker);
+    let comments = Comments::dummy(&Faker);
 
     let schema0 = Schema::new(
+        comments.clone(),
         version.clone(),
         vec![
             SchemaStm::Import(import0.clone()),
@@ -604,6 +628,7 @@ fn schema_reorder_hash_test() {
     );
 
     let schema1 = Schema::new(
+        comments,
         version,
         vec![SchemaStm::Import(import1), SchemaStm::Import(import0)],
         mark,

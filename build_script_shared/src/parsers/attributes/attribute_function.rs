@@ -5,7 +5,7 @@ use crate::parsers::*;
 use fake::*;
 use nom::error::context;
 use nom::sequence::*;
-use rand::seq::SliceRandom;
+use rand::seq::{IteratorRandom, SliceRandom};
 use serde::{Deserialize, Serialize};
 use std::hash::Hash;
 
@@ -58,13 +58,14 @@ impl<I> ParserSerialize for AttributeFunction<I> {
     ) -> crate::error::ComposerResult<()> {
         write!(f, "{}(", self.key)?;
         let mut first = true;
+        let value_ctx = ctx.set_indents(0);
         for value in &self.values {
             if !first {
                 write!(f, ", ")?;
             } else {
                 first = false;
             }
-            value.compose(f, ctx)?;
+            value.compose(f, value_ctx)?;
         }
         write!(f, ")")?;
         Ok(())
@@ -90,14 +91,26 @@ impl<I: Dummy<Faker>> Dummy<Faker> for AttributeFunction<I> {
     }
 }
 
-pub struct AllowedFunctionAttribute(pub &'static [(&'static str, Option<usize>)]);
+pub struct AllowedFunctionAttribute(
+    pub &'static [(&'static str, Option<usize>, Option<&'static [&'static str]>)],
+);
 impl<I: Dummy<Faker>> Dummy<AllowedFunctionAttribute> for AttributeFunction<I> {
     fn dummy_with_rng<R: Rng + ?Sized>(config: &AllowedFunctionAttribute, rng: &mut R) -> Self {
-        let (key, len) = config.0.choose(rng).unwrap();
+        let (key, len, allowed_values) = config.0.choose(rng).unwrap();
         AttributeFunction {
             key: Ident::new(key.to_string(), Faker.fake_with_rng(rng)),
             values: (0..len.unwrap_or_else(|| 5))
-                .map(|_| SimpleIdentDummy.fake_with_rng(rng))
+                .map(|_| {
+                    let a = allowed_values
+                        .and_then(|values| {
+                            values
+                                .iter()
+                                .choose(rng)
+                                .map(|value| Ident::new(value, Faker.fake()))
+                        })
+                        .unwrap_or_else(|| SimpleIdentDummy.fake_with_rng(rng));
+                    a
+                })
                 .collect(),
             mark: Faker.fake_with_rng(rng),
         }

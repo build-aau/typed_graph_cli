@@ -36,6 +36,8 @@ pub enum GenError {
     UnknownSchema { name: String },
     #[error("Found no changeset called {name:#16x}")]
     UnknownChangeset { name: u64 },
+    #[error("Found no refence called {name}")]
+    UnknownReference { name: String },
     #[error("Failed to find {kind} {missing_key} from version tree")]
     MalformedVersionTree { kind: String, missing_key: String },
     #[error("Expected folder at {folder}")]
@@ -58,4 +60,10 @@ pub enum GenError {
     PrefixError(#[from] StripPrefixError),
     #[error(transparent)]
     SerdeError(#[from] serde_json::Error),
+    #[error(transparent)]
+    BookError(#[from] mdbook::errors::Error),
+    #[error(transparent)]
+    TeraError(#[from] tera::Error),
+    #[error(transparent)]
+    ClapError(#[from] clap::Error),
 }

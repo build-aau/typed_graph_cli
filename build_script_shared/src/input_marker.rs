@@ -111,6 +111,7 @@ impl<I> InputMarker<I> {
             self.input_len(),
             lines_above,
             lines_below,
+            true
         )
     }
 

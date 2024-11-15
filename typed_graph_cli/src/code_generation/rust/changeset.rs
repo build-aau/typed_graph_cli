@@ -75,7 +75,7 @@ where
 
             let parent_ty = format!("super::super::super::{}::{}", old_mod, stm.get_type());
 
-            let s = match stm {
+            let from = match stm {
                 SchemaStm::Node(n) => write_node_from(n, changeset, &parent_ty),
                 SchemaStm::Struct(n) => write_struct_from(n, changeset, &parent_ty),
                 SchemaStm::Edge(e) => write_edge_from(e, changeset, &parent_ty),
@@ -84,7 +84,7 @@ where
             }?;
 
             let path = folder.join(format!("{}.rs", filename));
-            new_files.add_content(path, s);
+            new_files.add_content(path, from);
         }
 
         let new_path = format!("super::super::{}", new_mod);

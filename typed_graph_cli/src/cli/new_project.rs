@@ -1,8 +1,10 @@
 use crate::GenResult;
 use crate::Project;
 use build_script_lang::schema::Schema;
+use build_script_shared::parsers::Comments;
 use build_script_shared::parsers::Ident;
 use build_script_shared::parsers::Mark;
+use build_script_shared::InputMarker;
 use clap::Parser;
 
 use crate::cli::*;
@@ -28,7 +30,7 @@ impl Process<ProjectSettings> for NewProject {
             create_dir_all(&p)?;
         }
 
-        let mut prj = Project::create_project(p)?;
+        let mut prj = Project::create_project(&p)?;
 
         // Create an empty schema as a starting point
         if prj.iter_schema().count() == 0 {
@@ -37,10 +39,12 @@ impl Process<ProjectSettings> for NewProject {
                 .as_ref()
                 .map(|s| s.as_str())
                 .unwrap_or_else(|| "V0.0");
+            let input = Mark::new(InputMarker::new_from_file(name.to_string(), p.join("schemas").join(name).join("schema.bs").to_string_lossy().to_string()));
             let id = prj.add_schema(Schema::new(
-                Ident::new(name, Mark::null()),
+                Comments::default(),
+                Ident::new(name, input.clone()),
                 Vec::default(),
-                Mark::null(),
+                input
             ))?;
             let schema_path = prj.save_schema(&id)?;
             println!("Created new project in {:?}", schema_path);

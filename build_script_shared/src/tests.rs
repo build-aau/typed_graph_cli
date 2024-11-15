@@ -179,7 +179,7 @@ where
     println!("Dif of compose:");
     let left_s = left.serialize_to_string().unwrap();
     let right_s = right.serialize_to_string().unwrap();
-    let diff = CodePreview::diff_string(&left_s, &right_s);
+    let diff = CodePreview::diff_string(&left_s, &right_s, true);
     println!("{diff}");
 
     println!();
@@ -192,6 +192,6 @@ where
         .split_inclusive(',')
         .map(|line| format!("{line}\n"))
         .collect();
-    let diff = CodePreview::diff_string(&left_s, &right_s);
+    let diff = CodePreview::diff_string(&left_s, &right_s, true);
     println!("{diff}");
 }

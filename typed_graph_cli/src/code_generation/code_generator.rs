@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 use std::fs::{write, File};
+use std::io::Read;
+use std::ops::Deref;
 use std::path::{Path, PathBuf};
 
 use crate::GenResult;
@@ -62,7 +64,17 @@ impl GeneratedCode {
     pub fn write_all(&self) -> GenResult<()> {
         for (p, c) in &self.new_files {
             if let Some(content) = c {
-                write(p, content)?;
+                if !p.exists() {
+                    File::create(&p)?;
+                }
+
+                let mut f = File::open(p)?;
+                let mut current_content = String::new();
+                f.read_to_string(&mut current_content)?;
+
+                if content != &current_content {
+                    write(p, content)?;
+                }
             } else {
                 if !p.exists() {
                     File::create(p)?;
@@ -70,5 +82,12 @@ impl GeneratedCode {
             }
         }
         Ok(())
+    }
+}
+
+impl Deref for GeneratedCode {
+    type Target = HashMap<PathBuf, Option<String>>;
+    fn deref(&self) -> &Self::Target {
+        &self.new_files
     }
 }

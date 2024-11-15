@@ -13,9 +13,88 @@ This creates two folders schemas and changesets.
 the schemas folder contains all the BUILDscript files with the extension *.bs  
 the changesets folder contains all the Changesets with exstension *.bs.diff
 
+### Schema Lexer
+
+<div class="highlight highlight-html"><pre>
+
+<a id="ALPHA"></a>ALPHA = Parse a-z or A-Z
+<a id="NUMERIC"></a>NUMERIC = Parse an u32
+<a id="ALPHANUMERIC"></a>ALPHANUMERIC = Parse a-z, A-Z or 0-9
+<a id="EMPTY"></a>EMPTY = Parse nothing
+<a id="SPACE"></a>SPACE = Parse a single whitespace
+<a id="NEW_LINE"></a>NEW_LINE = Parse a single newline
+<a id="ANY"></a>ANY = Parse any character
+
+<a id="IDENT_START"></a>IDENT_START: [ALPHA](#ALPHA) | _ | -
+<a id="IDENT_BODY"></a>IDENT_BODY: [ALPHANUMERIC](#ALPHANUMERIC) | _ | -
+<a id="IDENT_FULL"></a>IDENT_FULL: [IDENTL_START](#IDENTL_START) [IDENT_BODY](#IDENT_BODY)*
+<a id="IDENT"></a>IDENT: [IDENT_BODY](#IDENT_BODY)+
+
+<a id="DOC_COMMENT"></a>DOC_COMMENT: /// [ANY](#ANY)* [NEW_LINE](#NEW_LINE)
+<a id="LINE_COMMENT"></a>LINE_COMMENT: // [ANY](#ANY)* [NEW_LINE](#NEW_LINE)
+<a id="BLOCK_COMMENT"></a>BLOCK_COMMENT: /* [ANY](#ANY)* \*/
+<a id="COMMENT_SINGLE"></a>COMMENT_SINGLE: [DOC_COMMENT](#DOC_COMMENT) | [LINE_COMMENT](#LINE_COMMENT) | [BLOCK_COMMENT](#BLOCK_COMMENT)
+<a id="COMMENTS"></a>COMMENTS: [COMMENT_SINGLE](#COMMENT_SINGLE)*
+
+<a id="KEY_VALUE_ATTRIBUTE"></a>KEY_VALUE_ATTRIBUTE: [IDENT](#IDENT) = [IDENT](#IDENT)
+<a id="FUNCTION_KEY_VALUE_ATTRIBUTE"></a>FUNCTION_KEY_VALUE_ATTRIBUTE: [IDENT](#IDENT) ( [IDENT](#IDENT) = [IDENT](#IDENT) )
+<a id="FUNCTION_ATTRIBUTE"></a>FUNCTION_ATTRIBUTE: [IDENT](#IDENT) ( [IDENT](#IDENT),* )
+<a id="ATTRIBUTE_SINGLE"></a>ATTRIBUTE_SINGLE: @[KEY_VALUE_ATTRIBUTE](#KEY_VALUE_ATTRIBUTE) | @[FUNCTION_KEY_VALUE_ATTRIBUTE](#FUNCTION_KEY_VALUE_ATTRIBUTE) | @[FUNCTION_ATTRIBUTE](#FUNCTION_ATTRIBUTE)
+<a id="ATTRIBUTES"></a>ATTRIBUTES: [ATTRIBUTE_SINGLE](#ATTRIBUTE_SINGLE)*
+
+<a id="GENERICS"></a>GENERICS = < [IDENT](#IDENT),* >
+<a id="REFERENCE_TYPE"></a>REFERENCE_TYPE: [IDENT](#IDENT) [GENERICS](#GENERICS)?
+<a id="TYPE"></a>TYPE:
+&nbsp;Option < [TYPE](#TYPE) >
+&nbsp;| List < [TYPE](#TYPE) >
+&nbsp;| MAP < [TYPE](#TYPE) , [TYPE](#TYPE) >
+&nbsp;| [REFERENCE_TYPE](#REFERENCE_TYPE)
+&nbsp;| String
+&nbsp;| bool
+&nbsp;| f64
+&nbsp;| f32
+&nbsp;| usize
+&nbsp;| u64
+&nbsp;| u32
+&nbsp;| u16
+&nbsp;| u8
+&nbsp;| isize
+&nbsp;| i64
+&nbsp;| i32
+&nbsp;| i16
+&nbsp;| i8
+
+<a id="VISIBILITY"></a>VISIBILITY: pub | [EMPTY](#EMPTY)
+
+<a id="FIELD_VALUE"></a>FIELD_VALUE: [COMMENTS](#COMMENTS) [ATTRIBUTES](#ATTRIBUTES) [VISIBILITY](#VISIBILITY) [IDENT](#IDENT) : [TYPE](#TYPE)
+<a id="FIELDS"></a>FIELDS: { [FIELD_VALUE](#FIELD_VALUE),* }
+
+<a id="QUANTIFIER"></a>QUANTIFIER: [ 0 .. [NUMERIC](#NUMERIC) ] | [ 1 .. [NUMERIC](#NUMERIC) ] | [EMPTY](#EMPTY)
+<a id="ENDPOINT_SINGLE"></a>ENDPOINT_SINGLE: [IDENT](#IDENT) [QUANTIFIER](#QUANTIFIER) => [IDENT](#IDENT) [QUANTIFIER](#QUANTIFIER)
+<a id="ENDPOINTS"></a>ENDPOINTS: ( [ENDPOINT_SINGLE](#ENDPOINT_SINGLE),* )
+
+<a id="UNIT_VARIENT"></a>UNIT_VARIENT: [IDENT](#IDENT)
+<a id="STRUCT_VARIENT"></a>STRUCT_VARIENT: [IDENT](#IDENT) [FIELDS](#FIELDS)
+<a id="OPAQUE_VARIENT"></a>OPAQUE_VARIENT: [IDENT](#IDENT) ( [TYPE](#TYPE) )
+<a id="VARIENT_SINGLE"></a>VARIENT_SINGLE:  [UNIT_VARIENT](#UNIT_VARIENT) | [STRUCT_VARIENT](#STRUCT_VARIENT) | [OPAQUE_VARIENT](#OPAQUE_VARIENT)
+<a id="VARIENT_VALUE"></a>VARIENT_VALUE:  [COMMENTS](#COMMENTS) [ATTRIBUTES](#ATTRIBUTES) [VARIENT_SINGLE](#VARIENT_SINGLE)
+
+<a id="ENUM_VARIENTS"></a>ENUM_VARIENTS: { [VARIENT_VALUE](#VARIENT_VALUE),* }
+
+<a id="NODE_EXP"></a>NODE_EXP: [COMMENTS](#COMMENTS) [ATTRIBUTES](#ATTRIBUTES) node [SPACE](#SPACE) [IDENT](#IDENT) [FIELDS](#FIELDS)
+<a id="EDGE_EXP"></a>EDGE_EXP: [COMMENTS](#COMMENTS) [ATTRIBUTES](#ATTRIBUTES) edge [SPACE](#SPACE) [IDENT](#IDENT) [ENDPOINTS](#ENDPOINTS) [FIELDS](#FIELDS)
+<a id="ENUM_EXP"></a>ENUM_EXP: [COMMENTS](#COMMENTS) [ATTRIBUTES](#ATTRIBUTES) enum [SPACE](#SPACE) [IDENT](#IDENT) [ENUM_VARIENTS](#ENUM_VARIENTS)
+<a id="STRUCT_EXP"></a>STRUCT_EXP: [COMMENTS](#COMMENTS) [ATTRIBUTES](#ATTRIBUTES) struct [SPACE](#SPACE) [IDENT](#IDENT) [GENERICS](#GENERICS)? [FIELDS](#FIELDS)
+
+<a id="SCHEMA_STM"></a>SCHEMA_STM: [NODE_EXP](#NODE_EXP); | [EDGE_EXP](#EDGE_EXP); | [ENUM_EXP](#ENUM_EXP); |  [STRUCT_EXP](#STRUCT_EXP);
+
+<a id="SCHEMA_HEADER"></a>SCHEMA_HEADER: < [IDENT_FULL](#IDENT_FULL) >
+<a id="SCHEMA"></a>SCHEMA: [SCHEMA_HEADER](#SCHEMA_HEADER) [SCHEMA_STM](#SCHEMA_STM)*
+</pre></div>
+
 ### Editing schemas
 all schemas are found in the project/schemas folder
-The empty projects contian an enpty schema in project/schemas/v0.0.bs
+The empty projects contains an empty schema in project/schemas/v0.0.bs
 ```
 <V0.0>
 ```
@@ -46,9 +125,11 @@ enum Grades {
 In this schema we describe a school with students and classes.  
 Each student attend a number and classes and can be assigned a grade for those classes between A-F.
 
-Next we will use this schema in either rust or python
+
 ### Generating Code
-#### Rust
+The schema definitions can then be used in both [Rust](#Rust) and [Python](#Python).
+Each version of the code seriallizes to the same format allowing easy transfer between the two languages.
+#### <a id="Rust"></a>Rust
 We first need a place to store the exported schema.
 For this purpose we new crate.
 
@@ -157,7 +238,7 @@ fn main() -> SchemaResult<(), NodeKey, EdgeKey, V0_1<NodeKey, EdgeKey>> {
     Ok(())
 }
 ```
-#### Python
+#### <a id="Python"></a>Python
 We first need a place to store the exported schema.  
 For this purpose we create a new folder called my_first_typed_graph.
 
@@ -231,27 +312,27 @@ from src.graph.v0_0 import *
 
 g = Graph(V0_0())
 
-alice = Student(id = 0, name = 'Alice', age = 21)
-bob = Student(id = 1, name = 'Bob', age = 22)
+alice = Node.Student(id = 0, name = 'Alice', age = 21)
+bob = Node.Student(id = 1, name = 'Bob', age = 22)
 
 alice_id = g.add_node(alice)
 bob_id = g.add_node(bob)
 
-math_class = Classes(id = 2, name = 'Math')
-english_class = Classes(id = 3, name = 'English')
-biology_class = Classes(id = 4, name = 'Biology')
+math_class = Node.Classes(id = 2, name = 'Math')
+english_class = Node.Classes(id = 3, name = 'English')
+biology_class = Node.Classes(id = 4, name = 'Biology')
 
 math_id = g.add_node(math_class)
 english_id = g.add_node(english_class)
 biology_id = g.add_node(biology_class)
 
-g.add_edge(alice_id, math_id, Attendance(id = 0, grades = None))
-g.add_edge(alice_id, english_id, Attendance(id = 1, grades = None))
-g.add_edge(alice_id, biology_id, Attendance(id = 2, grades = None))
+g.add_edge(alice_id, math_id, Edge.Attendance(id = 0, grades = None))
+g.add_edge(alice_id, english_id, Edge.Attendance(id = 1, grades = None))
+g.add_edge(alice_id, biology_id, Edge.Attendance(id = 2, grades = None))
 
-g.add_edge(bob_id, math_id, Attendance(id = 3, grades = None))
-g.add_edge(bob_id, english_id, Attendance(id = 4, grades = None))
-g.add_edge(bob_id, english_id, Attendance(id = 5, grades = Grades.E))
+g.add_edge(bob_id, math_id, Edge.Attendance(id = 3, grades = None))
+g.add_edge(bob_id, english_id, Edge.Attendance(id = 4, grades = None))
+g.add_edge(bob_id, english_id, Edge.Attendance(id = 5, grades = Grades.E))
 
 
 ```

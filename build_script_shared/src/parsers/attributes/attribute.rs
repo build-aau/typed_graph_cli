@@ -9,6 +9,7 @@ use nom::character::complete::*;
 use nom::combinator::map;
 use nom::error::context;
 use nom::sequence::*;
+use rand::seq::IteratorRandom;
 use serde::{Deserialize, Serialize};
 use std::hash::Hash;
 
@@ -18,7 +19,7 @@ use std::hash::Hash;
 pub enum Attribute<I> {
     KeyValue(AttributeKeyValue<I>),
     Function(AttributeFunction<I>),
-    FunctionKeyValue(AttributeFunctionKeyValue<I>)
+    FunctionKeyValue(AttributeFunctionKeyValue<I>),
 }
 
 impl<I> Attribute<I> {
@@ -30,7 +31,7 @@ impl<I> Attribute<I> {
         match self {
             Attribute::KeyValue(kv) => Attribute::KeyValue(kv.map(f)),
             Attribute::Function(value) => Attribute::Function(value.map(f)),
-            Attribute::FunctionKeyValue(kv) => Attribute::FunctionKeyValue(kv.map(f))
+            Attribute::FunctionKeyValue(kv) => Attribute::FunctionKeyValue(kv.map(f)),
         }
     }
 }
@@ -43,7 +44,10 @@ impl<I: InputType> ParserDeserialize<I> for Attribute<I> {
                 char('@'),
                 alt((
                     map(AttributeKeyValue::parse, Attribute::KeyValue),
-                    map(AttributeFunctionKeyValue::parse, Attribute::FunctionKeyValue),
+                    map(
+                        AttributeFunctionKeyValue::parse,
+                        Attribute::FunctionKeyValue,
+                    ),
                     map(AttributeFunction::parse, Attribute::Function),
                 )),
             ),
@@ -82,19 +86,42 @@ impl<I: Dummy<Faker>> Dummy<Faker> for Attribute<I> {
     fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
         match rng.gen_range(0..=2) {
             0 => Attribute::KeyValue(AttributeKeyValue::dummy_with_rng(config, rng)),
-            1 => Attribute::FunctionKeyValue(AttributeFunctionKeyValue::dummy_with_rng(config, rng)),
+            1 => {
+                Attribute::FunctionKeyValue(AttributeFunctionKeyValue::dummy_with_rng(config, rng))
+            }
             _ => Attribute::Function(AttributeFunction::dummy_with_rng(config, rng)),
         }
     }
 }
 
-pub struct AllowedAttributes(pub AllowedKeyValueAttribute, pub AllowedFunctionAttribute, pub AllowedFunctionKeyValueAttribute);
+pub struct AllowedAttributes(
+    pub AllowedKeyValueAttribute,
+    pub AllowedFunctionAttribute,
+    pub AllowedFunctionKeyValueAttribute,
+);
 impl<I: Dummy<Faker>> Dummy<AllowedAttributes> for Attribute<I> {
     fn dummy_with_rng<R: Rng + ?Sized>(config: &AllowedAttributes, rng: &mut R) -> Self {
-        match rng.gen_range(0..=2) {
-            0 => Attribute::KeyValue(AttributeKeyValue::dummy_with_rng(&config.0, rng)),
-            1 => Attribute::FunctionKeyValue(AttributeFunctionKeyValue::dummy_with_rng(&config.2, rng)),
-            _ => Attribute::Function(AttributeFunction::dummy_with_rng(&config.1, rng)),
+        let mut options = Vec::new();
+
+        if !config.0 .0.is_empty() {
+            options.push(0);
+        }
+
+        if !config.1 .0.is_empty() {
+            options.push(1);
+        }
+
+        if !config.2 .0.is_empty() {
+            options.push(2);
+        }
+
+        match options.iter().choose(rng) {
+            Some(0) => Attribute::KeyValue(AttributeKeyValue::dummy_with_rng(&config.0, rng)),
+            Some(1) => Attribute::Function(AttributeFunction::dummy_with_rng(&config.1, rng)),
+            Some(_) => Attribute::FunctionKeyValue(AttributeFunctionKeyValue::dummy_with_rng(
+                &config.2, rng,
+            )),
+            None => panic!("No attributes provided"),
         }
     }
 }
@@ -112,7 +139,10 @@ impl<I: Dummy<Faker>> Dummy<AllowedFunctionAttribute> for Attribute<I> {
 }
 
 impl<I: Dummy<Faker>> Dummy<AllowedFunctionKeyValueAttribute> for Attribute<I> {
-    fn dummy_with_rng<R: Rng + ?Sized>(config: &AllowedFunctionKeyValueAttribute, rng: &mut R) -> Self {
+    fn dummy_with_rng<R: Rng + ?Sized>(
+        config: &AllowedFunctionKeyValueAttribute,
+        rng: &mut R,
+    ) -> Self {
         Attribute::FunctionKeyValue(AttributeFunctionKeyValue::dummy_with_rng(config, rng))
     }
 }

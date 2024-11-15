@@ -26,13 +26,13 @@ impl<I> CodeGenerator<targets::Python> for NodeExp<I> {
         writeln!(s, "from ..node_type import NodeType")?;
         writeln!(s, "from ..structs import *")?;
         writeln!(s, "from ..types import *")?;
-        writeln!(s, "from ..imports import *")?;
         writeln!(s, "from ...imports import *")?;
+        writeln!(s, "from ..imports import *")?;
         writeln!(s, "from .. import *")?;
         writeln!(s, "from typed_graph import NodeExt, RecievedNoneValue")?;
         writeln!(
             s,
-            "from typing import Optional, List, Dict, Iterable, Tuple, ClassVar"
+            "from typing import Optional, List, Set, Dict, Iterable, Tuple, ClassVar"
         )?;
         writeln!(s, "from pydantic import Field, AliasChoices")?;
         writeln!(s, "")?;
@@ -57,26 +57,39 @@ impl<I> CodeGenerator<targets::Python> for NodeExp<I> {
 }
 
 /// Write ./nodes.rs
-pub(super) fn write_nodes_py<I: Ord>(schema: &Schema<I>, new_files: &mut GeneratedCode, schema_folder: &Path) -> GenResult<()> {
+pub(super) fn write_nodes_py<I: Ord>(
+    schema: &Schema<I>,
+    new_files: &mut GeneratedCode,
+    schema_folder: &Path,
+) -> GenResult<()> {
     let node_path = schema_folder.join("node.py");
 
-    let nodes: Vec<_> = schema.nodes()
-        .map(|n| n.name.to_string())
-        .collect();
+    let nodes: Vec<_> = schema.nodes().map(|n| n.name.to_string()).collect();
 
     let mut node = String::new();
-    writeln!(node, "from typed_graph import NestedEnum")?;
-    writeln!(node, "from .. import imports")?;
+    writeln!(node, "from .node_type import NodeType")?;
     writeln!(node, "from .nodes import *")?;
+    writeln!(node, "from typed_graph import NestedEnum")?;
+    writeln!(node, "from ..imports import *")?;
+    writeln!(node, "from .imports import *")?;
     writeln!(node)?;
     writeln!(node, "class Node(NestedEnum):")?;
     if nodes.is_empty() {
         writeln!(node, "    pass")?
     } else {
         for node_type in nodes {
-            writeln!(node, "    {node_type}: {node_type}")?;
+            writeln!(node, "    {node_type} = {node_type}")?;
         }
     }
+    writeln!(node)?;
+    writeln!(node, "    def get_id(self) -> NodeId:")?;
+    writeln!(node, "        ...")?;
+    writeln!(node)?;
+    writeln!(node, "    def set_id(self, id: NodeId) -> None:")?;
+    writeln!(node, "        ...")?;
+    writeln!(node)?;
+    writeln!(node, "    def get_type(self) -> NodeType:")?;
+    writeln!(node, "        ...")?;
 
     new_files.add_content(node_path, node);
 

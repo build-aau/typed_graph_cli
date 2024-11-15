@@ -1,3 +1,4 @@
+use super::Visibility;
 use build_script_shared::compose_test;
 use build_script_shared::dependency_graph::DependencyGraph;
 use build_script_shared::error::*;
@@ -15,21 +16,15 @@ use serde::Serialize;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::hash::Hash;
-use super::Visibility;
 
 const JSON: &str = "json";
 
-const ALLOWED_FUNCTION_KEY_VALUE_ATTRIBUTES: &[(&str, &str)] = &[
-    (JSON, "alias"), 
-];
+const ALLOWED_FUNCTION_KEY_VALUE_ATTRIBUTES: &[(&str, &str)] = &[(JSON, "alias")];
 
-const ALLOWED_FUNCTION_ATTRIBUTE_VALUES: &[&str] = &[
-    "skip"
-];
+const ALLOWED_FUNCTION_ATTRIBUTE_VALUES: &[&str] = &["skip", "default"];
 
-const ALLOWED_FUNCTION_ATTRIBUTES: &[(&str, Option<usize>)] = &[
-    (JSON, Some(1)),
-];
+const ALLOWED_FUNCTION_ATTRIBUTES: &[(&str, Option<usize>, Option<&[&str]>)] =
+    &[(JSON, Some(1), Some(ALLOWED_FUNCTION_ATTRIBUTE_VALUES))];
 
 #[derive(Debug, Clone, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(bound = "I: Default + Clone")]
@@ -68,6 +63,10 @@ impl<I> Fields<I> {
         for field in &mut self.fields {
             field.comments.strip_comments();
         }
+    }
+
+    pub fn len(&self) -> usize {
+        self.fields.len()
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &FieldValue<I>> {
@@ -129,19 +128,28 @@ impl<I> Fields<I> {
     {
         for field_value in &self.fields {
             field_value.attributes.check_attributes(
-                &[], 
-                ALLOWED_FUNCTION_ATTRIBUTES, 
-                ALLOWED_FUNCTION_KEY_VALUE_ATTRIBUTES
+                &[],
+                ALLOWED_FUNCTION_ATTRIBUTES,
+                ALLOWED_FUNCTION_KEY_VALUE_ATTRIBUTES,
             )?;
 
             let json_functions = field_value.attributes.get_functions(JSON);
             for func in json_functions {
                 if let Some(tag) = func.values.get(0) {
                     if !ALLOWED_FUNCTION_ATTRIBUTE_VALUES.contains(&tag.as_str()) {
-                        return Err(Err::Failure(ParserError::new_at(tag, ParserErrorKind::InvalidAttribute(format!("{}", ALLOWED_FUNCTION_ATTRIBUTE_VALUES.join(","))))));
+                        return Err(Err::Failure(ParserError::new_at(
+                            tag,
+                            ParserErrorKind::InvalidAttribute(format!(
+                                "{}",
+                                ALLOWED_FUNCTION_ATTRIBUTE_VALUES.join(",")
+                            )),
+                        )));
                     }
                 } else {
-                    return Err(Err::Failure(ParserError::new_at(func, ParserErrorKind::InvalidAttribute(format!("Expected 1 argument")))));
+                    return Err(Err::Failure(ParserError::new_at(
+                        func,
+                        ParserErrorKind::InvalidAttribute(format!("Expected 1 argument")),
+                    )));
                 }
             }
         }

@@ -12,6 +12,7 @@ build_script_shared = { path = "../build_script_shared" }
 build_script_lang = { path = "../build_script_lang" }
 fake = { version = "2.9", features = ["derive"] }
 serde = { version="1.0.195", features = ["serde_derive"] }
+rand = "0.8.5"
 
 [dev-dependencies]
 notify = { version = "6.1.1", features = ["serde"] }

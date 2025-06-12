@@ -128,7 +128,7 @@ pub fn gen_type_example(ty: &Types<InputMarker<String>>, escaped: bool, indent: 
                         let updated = expand_type(&target, scope)?;
 
                         match &updated {
-                            Types::Reference { inner, generics, marker } => {
+                            Types::Reference { inner, .. } => {
                                 if &source.letter == inner {
                                     // If we let the references to the generics though we will get a stack overflow
                                     local_scope.insert(source.letter.to_string(), None);

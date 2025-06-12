@@ -1,6 +1,5 @@
 use crate::*;
 use build_script_lang::schema::{Schema, SchemaStm};
-use build_script_shared::parsers::ParserSerialize;
 use std::fmt::{Debug, Write};
 use std::path::Path;
 
@@ -162,10 +161,10 @@ where
         writeln!(f, "from .{filename} import {type_name}")?;
     }
 
-    writeln!(nodes_init, "__main__ = [")?;
-    writeln!(structs_init, "__main__ = [")?;
-    writeln!(edges_init, "__main__ = [")?;
-    writeln!(types_init, "__main__ = [")?;
+    writeln!(nodes_init, "__all__ = [")?;
+    writeln!(structs_init, "__all__ = [")?;
+    writeln!(edges_init, "__all__ = [")?;
+    writeln!(types_init, "__all__ = [")?;
 
     for stm in schema.iter() {
         let (type_name, f) = match stm {
@@ -196,21 +195,30 @@ where
     let mut s = String::new();
     writeln!(s, "from .edge_type import EdgeType")?;
     writeln!(s, "from .node_type import NodeType")?;
+    writeln!(s, "")?;
+    // Resolve circular references
+    writeln!(s, "from .imports import *")?;
+    writeln!(s, "from ..imports import *")?;
+    writeln!(s, "from .structs import *")?;
+    writeln!(s, "from .types import *")?;
+    writeln!(s, "")?;
+    for stm in schema.iter() {
+        match stm {
+            SchemaStm::Struct(n) if n.has_external_ref() => writeln!(s, "{}.model_rebuild()", n.name)?,
+            SchemaStm::Enum(n) if n.has_external_ref() => writeln!(s, "{}.model_rebuild()", n.name)?,
+            _ => ()
+        }
+    }
+    
+    writeln!(s, "")?;
     writeln!(s, "from .edge import Edge")?;
     writeln!(s, "from .node import Node")?;
     writeln!(s, "from .schema import {schema_name}")?;
-    writeln!(s, "from .types import *")?;
-    writeln!(s, "from .edges import *")?;
-    writeln!(s, "from .nodes import *")?;
-    writeln!(s, "from .structs import *")?;
     writeln!(s, "")?;
-    writeln!(s, "from typed_graph import TypedGraph")?;
+    writeln!(s, "from typed_graph import TypedGraph, PartialTypedGraph")?;
     writeln!(s, "")?;
-    writeln!(s, "from . import imports as imports1")?;
-    writeln!(s, "from .. import imports as imports2")?;
-    writeln!(s, "")?;
-    writeln!(s, "from ..imports import *")?;
-    writeln!(s, "from .imports import *")?;
+    writeln!(s, "from .import imports as imports1")?;
+    writeln!(s, "from ..import imports as imports2")?;
     writeln!(s, "")?;
     writeln!(s, "if hasattr(imports1, 'NodeId'):")?;
     writeln!(s, "    NodeId = imports1.NodeId")?;
@@ -223,19 +231,15 @@ where
     writeln!(s, "    EdgeId = imports2.EdgeId")?;
     writeln!(s, "")?;
     writeln!(s, "{schema_name}Graph = TypedGraph[Node, Edge, NodeId, EdgeId, NodeType, EdgeType, {schema_name}]")?;
+    writeln!(s, "{schema_name}PartialGraph = PartialTypedGraph[Node, Edge, NodeId, EdgeId, NodeType, EdgeType, {schema_name}]")?;
     writeln!(s, "")?;
-    writeln!(
-        s,
-        "SCHEMA_DEFINITION = \"\"\"{}\"\"\"#;",
-        schema.serialize_to_string()?
-    )?;
-    writeln!(s, "")?;
-    writeln!(s, "__main__ = [")?;
+    writeln!(s, "__all__ = [")?;
     writeln!(s, "    'EdgeType',")?;
     writeln!(s, "    'NodeType',")?;
     writeln!(s, "    'Edge',")?;
     writeln!(s, "    'Node',")?;
-    writeln!(s, "    'SCHEMA_DEFINIOTION',")?;
+    writeln!(s, "    '{schema_name}Graph',")?;
+    writeln!(s, "    '{schema_name}PartialGraph',")?;
     writeln!(s, "    '{schema_name}',")?;
     writeln!(s, "]")?;
 
@@ -307,7 +311,7 @@ fn write_schema_impl_py<I: Ord>(
     writeln!(schema_py, "    tagging: ClassVar[bool] = False")?;
     writeln!(schema_py, "    root: Literal['{schema_version}']")?;
     writeln!(schema_py, "")?;
-    writeln!(schema_py, "    def name(self) -> str:")?;
+    writeln!(schema_py, "    def name(*args) -> str:")?;
     writeln!(schema_py, "        return '{schema_version}'")?;
     writeln!(schema_py, "")?;
     writeln!(

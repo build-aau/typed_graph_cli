@@ -24,22 +24,27 @@ impl<I> CodeGenerator<targets::Python> for NodeExp<I> {
         let mut s = String::new();
 
         writeln!(s, "from ..node_type import NodeType")?;
+        writeln!(s, "from ..edge_type import EdgeType")?;
         writeln!(s, "from ..structs import *")?;
         writeln!(s, "from ..types import *")?;
         writeln!(s, "from ...imports import *")?;
         writeln!(s, "from ..imports import *")?;
-        writeln!(s, "from .. import *")?;
         writeln!(s, "from typed_graph import NodeExt, RecievedNoneValue")?;
         writeln!(
             s,
-            "from typing import Optional, List, Set, Dict, Iterable, Tuple, ClassVar"
+            "from typing import Optional, List, Set, Dict, Iterator, Tuple, ClassVar, TYPE_CHECKING"
         )?;
         writeln!(s, "from pydantic import Field, AliasChoices")?;
+        writeln!(s, "")?;
+        writeln!(s, "if TYPE_CHECKING:")?;
+        writeln!(s, "    from .. import *")?;
+        writeln!(s, "    from ..edges import *")?;
+        writeln!(s, "    from ..nodes import *")?;
         writeln!(s, "")?;
         writeln!(s, "class {node_name}(NodeExt[NodeId, NodeType]):")?;
         write_comments(&mut s, &self.comments)?;
         writeln!(s, "    id: NodeId")?;
-        write_fields(&mut s, &self.fields)?;
+        write_fields(&mut s, &self.fields, false)?;
         writeln!(s, "")?;
         writeln!(s, "    def get_id(self) -> NodeId:")?;
         writeln!(s, "        return self.id")?;

@@ -4,9 +4,10 @@ use build_script_shared::parsers::{
     Ident, Mark, Marked, ParserDeserialize, ParserDeserializeTo, ParserSerialize,
 };
 use build_script_shared::{BUILDScriptError, InputMarker};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs::{create_dir_all, read_dir, read_to_string, remove_file, File};
 use std::path::{Component, Path, PathBuf};
+use std::fmt::Write;
 
 use crate::{GenError, GenResult};
 
@@ -14,6 +15,8 @@ use crate::{GenError, GenResult};
 pub struct Project {
     schemas: BTreeMap<String, Schema<InputMarker<String>>>,
     changesets: HashMap<u64, ChangeSet<InputMarker<String>>>,
+    /// The version tree contians both forward and backwards convertions of all chnagesets  
+    /// Each entry is on the form (old_version, new_version, changset_id)
     version_tree: HashMap<String, HashMap<String, (u64, Direction)>>,
     schema_folder: PathBuf,
     changeset_folder: PathBuf,
@@ -170,6 +173,30 @@ impl Project {
                     .map(move |(new, (id, _))| (old, new, id))
             })
             .flatten()
+    }
+
+    pub fn get_parents(
+        &self,
+        head: &str
+    ) -> BTreeSet<String> {
+        let mut parents = BTreeSet::new();
+        let mut to_visit = vec![head];
+        
+        while let Some(head) = to_visit.pop() {
+            if let Some(neighbours) = self.version_tree.get(head) {
+                for (neighbour_name, (_, dir)) in neighbours {
+                    if dir != &Direction::Backwards  {
+                        continue;
+                    }
+
+                    parents.insert(neighbour_name.clone());
+                    to_visit.push(neighbour_name.as_str());
+                }
+
+            }
+        }
+
+        parents
     }
 
     /// Create a copy of a schema  
@@ -335,7 +362,13 @@ impl Project {
         let mut code_origin = HashMap::new();
         code_origin.insert(
             schema.marker().get_source(),
-            Schema::new(schema.comments.clone(), schema.version.clone(), Vec::new(), schema.marker().clone()),
+            Schema::new(
+                schema.comments.clone(), 
+                schema.version.clone(), 
+                schema.handler.clone(),
+                Vec::new(), 
+                schema.marker().clone()
+            ),
         );
         
         for stm in schema.iter() {

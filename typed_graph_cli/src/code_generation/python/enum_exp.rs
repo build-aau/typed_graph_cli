@@ -24,23 +24,26 @@ impl<I> CodeGenerator<targets::Python> for EnumExp<I> {
         ));
         let mut s = String::new();
 
+        writeln!(s, "from __future__ import annotations")?;
         writeln!(s, "from typed_graph import NestedEnum")?;
         writeln!(
             s,
-            "from typing import Optional, List, Set, Dict, TypeVar, Generic, ClassVar, Annotated"
+            "from typing import Optional, List, Set, Dict, TypeVar, Generic, ClassVar, Annotated, Literal, TYPE_CHECKING"
         )?;
         writeln!(s, "from pydantic import Field, AliasChoices")?;
-        writeln!(s, "from ..types import *")?;
-        writeln!(s, "from ..structs import *")?;
-        writeln!(s, "from ...imports import *")?;
-        writeln!(s, "from ..imports import *")?;
-        writeln!(s, "from typing import Literal")?;
+        writeln!(s, "")?;
+        writeln!(s, "if TYPE_CHECKING:")?;
+        writeln!(s, "    from ..imports import *")?;
+        writeln!(s, "    from ...imports import *")?;
+        writeln!(s, "    from ..structs import *")?;
+        writeln!(s, "    from ..types import *")?;
         writeln!(s)?;
 
         for generic in &self.generics.generics {
             let letter = &generic.letter;
             writeln!(s, "{letter} = TypeVar(\"{letter}\")")?;
         }
+        
         let generic_refs = self
             .generics
             .generics
@@ -48,8 +51,6 @@ impl<I> CodeGenerator<targets::Python> for EnumExp<I> {
             .map(|gen| format!("{}", gen.letter))
             .collect::<Vec<_>>()
             .join(", ");
-
-        writeln!(s)?;
 
         if generic_refs.is_empty() {
             writeln!(s, "class {enum_name}(NestedEnum):")?;

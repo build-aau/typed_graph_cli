@@ -89,7 +89,7 @@ impl<I> ToDefaultPythonValue for Types<I> {
             Types::Option { .. } => "None".to_string(),
             Types::List { .. }
             | Types::Set { .. } => "[]".to_string(),
-            Types::Map { .. } => "{{}}".to_string(),
+            Types::Map { .. } => "{}".to_string(),
             Types::Reference {
                 inner, generics, ..
             } => {

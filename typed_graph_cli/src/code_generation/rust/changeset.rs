@@ -6,14 +6,14 @@ use super::*;
 use build_changeset_lang::*;
 use build_script_lang::schema::*;
 
-use crate::{targets, CodeGenerator, GenResult, GeneratedCode, ToSnakeCase};
+use crate::{targets, CodeGenerator, GenResult, GeneratedCode, Project, ToSnakeCase};
 
-impl<I> CodeGenerator<targets::Rust> for (&ChangeSet<I>, &Schema<I>, &Schema<I>)
+impl<I> CodeGenerator<targets::Rust> for (&ChangeSet<I>, &Schema<I>, &Schema<I>, &Project)
 where
     I: Ord + Debug + Clone + PartialEq + Default,
 {
     fn get_filename(&self) -> String {
-        CodeGenerator::<targets::Rust>::get_filename(self.1)
+        CodeGenerator::<targets::Rust>::get_filename(&(self.3, self.1))
     }
 
     fn aggregate_content<P: AsRef<Path>>(&self, p: P) -> GenResult<GeneratedCode> {
@@ -22,10 +22,10 @@ where
         let new_schema = self.2;
         let new_schema_folder = p
             .as_ref()
-            .join(CodeGenerator::<targets::Rust>::get_filename(self.2));
+            .join(CodeGenerator::<targets::Rust>::get_filename(&(self.3, self.2)));
         let old_schema_folder = p
             .as_ref()
-            .join(CodeGenerator::<targets::Rust>::get_filename(self.1));
+            .join(CodeGenerator::<targets::Rust>::get_filename(&(self.3, self.1)));
 
         let old_mod = changeset
             .old_version

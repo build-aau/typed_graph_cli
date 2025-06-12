@@ -1,5 +1,5 @@
 use std::fs::{create_dir_all, File};
-use std::io::{Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use tera::Context;
@@ -10,7 +10,6 @@ use crate::GenResult;
 use super::SchemaDocContext;
 
 pub struct DocBookContext {
-    pub book_root_path: PathBuf,
     pub book_src_path: PathBuf,
     pub book_res_path: PathBuf,
     main_sections: Vec<SchemaDocContext>,
@@ -36,7 +35,6 @@ impl DocBookContext {
         copy_resources(out_dir)?;
         
         Ok(DocBookContext {
-            book_root_path: out_dir.to_path_buf(),
             book_src_path: out_src_dir,
             book_res_path: out_res_dir,
             other_sections: Default::default(),

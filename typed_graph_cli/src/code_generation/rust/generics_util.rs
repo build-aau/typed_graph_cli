@@ -1,7 +1,5 @@
-use std::collections::{BTreeMap, BTreeSet, HashSet};
-
 use build_changeset_lang::{ChangeSet, FieldPath, SingleChange};
-use build_script_shared::parsers::{Generics, Ident, Mark, Types};
+use build_script_shared::parsers::{Generics, Ident, Types};
 
 use crate::{GenResult, ToRustType};
 
@@ -37,101 +35,6 @@ pub fn get_generic_changes<'a, I: PartialEq + Clone>(
     }
 
     (old_generics, new_generics)
-}
-
-pub fn get_generic_field_type_changes<I: Ord + Default + Clone>(
-    type_name: &Ident<I>,
-    generics: &Generics<I>,
-    new_generics: &Vec<&Ident<I>>,
-    old_generics: &Vec<&Ident<I>>,
-    changeset: &ChangeSet<I>,
-) -> (BTreeMap<Types<I>, BTreeSet<Types<I>>>, BTreeSet<String>) {
-    let changes = changeset.get_changes(FieldPath::new(type_name.clone()));
-
-    let mut into_mapping: BTreeMap<Types<I>, BTreeSet<Types<I>>> = BTreeMap::new();
-    let mut default_mapping = BTreeSet::new();
-
-    // Create mapping from generic to generic
-    for generic in new_generics {
-        if !old_generics.contains(generic) {
-            continue;
-        }
-
-        let old_ident: Ident<I> = Ident::new_alone(format!("{}Old", generic));
-        let new_ident: Ident<I> = Ident::new_alone(format!("{}New", generic));
-
-        let old_types = Types::Reference {
-            inner: old_ident,
-            generics: Default::default(),
-            marker: Mark::null(),
-        };
-        let new_types = Types::Reference {
-            inner: new_ident,
-            generics: Default::default(),
-            marker: Mark::null(),
-        };
-
-        into_mapping.entry(old_types).or_default().insert(new_types);
-    }
-
-    let available_generics: HashSet<_> = generics
-        .generics
-        .iter()
-        .map(|g| &g.letter)
-        .cloned()
-        .collect();
-
-    for change in &changes {
-        // Create mapping from one field to another
-        if let SingleChange::EditedFieldType(f) = change {
-            let new_field_type = f.new_type().clone();
-            let old_field_type = f.old_type().clone();
-
-            let mut new_generics = available_generics.clone();
-            new_field_type.remove_used(&mut new_generics);
-
-            let mut old_generics = available_generics.clone();
-            old_field_type.remove_used(&mut old_generics);
-
-            let new_field_type = new_field_type.map_reference(|ident| {
-                if available_generics.contains(&&ident) {
-                    Ident::new_alone(format!("{ident}New"))
-                } else {
-                    ident
-                }
-            });
-
-            let old_field_type = old_field_type.map_reference(|ident| {
-                if available_generics.contains(&&ident) {
-                    Ident::new_alone(format!("{ident}Old"))
-                } else {
-                    ident
-                }
-            });
-
-            into_mapping
-                .entry(old_field_type)
-                .or_default()
-                .insert(new_field_type);
-        }
-
-        // Create mapping from no instance to one
-        // By figure out which generics need a Default implementation
-        if let SingleChange::AddedField(f) = change {
-            let new_field_type = f.field_type();
-
-            let mut available_generics = available_generics.clone();
-            new_field_type.remove_used(&mut available_generics);
-            let used_generics = available_generics
-                .iter()
-                .filter(|g| available_generics.contains(g))
-                .map(|letter| format!("{letter}New"));
-
-            default_mapping.extend(used_generics)
-        }
-    }
-
-    (into_mapping, default_mapping)
 }
 
 pub fn create_generics<I: PartialEq + Ord + Clone + Default>(

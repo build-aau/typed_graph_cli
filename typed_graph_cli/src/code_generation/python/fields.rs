@@ -6,10 +6,10 @@ use crate::{GenResult, ToDefaultPythonValue, ToPythonType};
 
 use super::write_comments;
 
-pub fn write_fields<I>(s: &mut impl Write, fields: &Fields<I>) -> GenResult<()> {
+pub fn write_fields<I>(s: &mut impl Write, fields: &Fields<I>, quote_fields: bool) -> GenResult<()> {
     for field_value in fields.iter() {
         let field_name = &field_value.name;
-        let field_type = field_value.field_type.to_python_type();
+        let field_type = field_value.field_type.to_python_type_quoted(quote_fields);
 
         let mut field_attributes = Vec::new();
 

@@ -551,15 +551,16 @@ pub(super) fn write_node_from<I: Clone + PartialEq>(
 
     let mut s = String::new();
     writeln!(s, "")?;
+    writeln!(s, "#[allow(unused)]")?;
     writeln!(
         s,
         "impl<NK> TryFrom<{parent_ty}<NK>> for {node_type}<NK> {{"
     )?;
-    writeln!(s, "    type Error = GenericTypedError<String, String>;")?;
+    writeln!(s, "    type Error = UpgradeError;")?;
     writeln!(s, "")?;
     writeln!(
         s,
-        "    fn try_from(other: {parent_ty}<NK>) -> GenericTypedResult<Self, String, String> {{"
+        "    fn try_from(other: {parent_ty}<NK>) -> Result<Self, Self::Error> {{"
     )?;
     writeln!(s, "       Ok({node_type} {{")?;
     writeln!(s, "           id: other.id.into(),")?;

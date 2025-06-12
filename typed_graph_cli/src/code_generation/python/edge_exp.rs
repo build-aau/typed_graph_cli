@@ -1,11 +1,11 @@
-use build_script_lang::schema::{EdgeExp, EndPoint, LowerBound, NodeExp, Schema};
+use build_script_lang::schema::{EdgeExp, EndPoint, NodeExp, Schema};
 use build_script_shared::parsers::Ident;
 use indexmap::IndexSet;
 use std::collections::{BTreeMap, HashSet};
-use std::fmt::{Debug, Display, Write};
+use std::fmt::{Debug, Write};
 use std::path::Path;
 use crate::common::{function_suffix, rename_attribute_name, search_dir, EdgeRepresentation};
-use crate::{targets, CodeGenerator, Direction, GenResult, GeneratedCode, ToSnakeCase};
+use crate::{targets, CodeGenerator, Direction, GenError, GenResult, GeneratedCode, ToSnakeCase};
 
 use super::{write_comments, write_fields};
 
@@ -35,11 +35,12 @@ impl<I> CodeGenerator<targets::Python> for EdgeExp<I> {
         writeln!(s, "from typing import Optional, List, Set, Dict, ClassVar")?;
         writeln!(s, "from typed_graph import EdgeExt")?;
         writeln!(s, "")?;
+
         writeln!(s, "class {edge_name}(EdgeExt[EdgeId, EdgeType]):")?;
         write_comments(&mut s, &self.comments)?;
         writeln!(s, "    tagging: ClassVar[bool] = False")?;
         writeln!(s, "    id: EdgeId")?;
-        write_fields(&mut s, &self.fields)?;
+        write_fields(&mut s, &self.fields, false)?;
         writeln!(s)?;
         writeln!(s, "    def get_id(self) -> EdgeId:")?;
         writeln!(s, "        return self.id")?;
@@ -57,7 +58,7 @@ impl<I> CodeGenerator<targets::Python> for EdgeExp<I> {
     }
 }
 
-// Write ./edges.rs
+// Write ./edges.py
 pub(super) fn write_edges_py<I: Ord>(
     schema: &Schema<I>,
     new_files: &mut GeneratedCode,
@@ -98,7 +99,7 @@ pub(super) fn write_edges_py<I: Ord>(
     Ok(())
 }
 
-/// Write ./edge_type.rs
+/// Write ./edge_type.py
 pub(super) fn write_edge_type_py<I: Ord>(
     schema: &Schema<I>,
     new_files: &mut GeneratedCode,
@@ -194,7 +195,6 @@ pub(super) fn write_edge_endpoints_py<I: Debug + Ord>(
                 &schema_name,
                 &mut edge_impl,
                 &endpoints,
-                &grouped_by_start,
                 &grouped_by_edge,
             )?;
 
@@ -225,43 +225,77 @@ fn write_getter_with_node<I: Debug + Ord>(
 ) -> GenResult<()> {
     for (end, edges) in grouped_by_end {
         let mut edge_types = Vec::new();
+        let mut edge_names = Vec::new();
         for edge in edges {
             edge_types.push(format!("EdgeType.{}", edge.name));
+            edge_names.push(edge.name.to_string());
         }
 
+        let edge_name_list = edge_names.join(", ");
         let edge_types_patterns = edge_types.join(", ");
 
-        // If there are no other types of edge to the given node then we can safely cast the edge into the specific one
-        let only_edge_type = if edges.len() == 1 {
-            Some(edges.get(0).unwrap())
-        } else {
-            None
-        };
 
+        let edge_names = edges.into_iter().map(|e| &e.name).collect::<Vec<_>>();
+        let (target_type, _) = match edge_names.as_slice() {
+            [] => Err(GenError::ExportFailed(format!(
+                "Failed to find {} edge for {end}",
+                function_suffix(dir)
+            ))),
+
+            // Use specific type
+            [edge_type] => Ok((format!("Edge.{edge_type}"), true)),
+
+            // Use any of the specific types
+            edge_types if nodes.len() < 10 => {
+                let generics = edge_types
+                    .iter()
+                    .map(|e| format!("Edge.{e}"))
+                    .collect::<Vec<_>>()
+                    .join(" | ");
+                Ok((generics, true))
+            }
+
+            // Fallback if no specific type can be found
+            _ => Ok(("Edge".to_string(), false)),
+        }?;
+
+        let mut endpoint_count = 0;
         let mut edge_repr = EdgeRepresentation::Result;
-
         for edge in edges {
-            edge_repr = edge
+            let quantities = edge
                 .endpoints
                 .iter()
+                // Find endpoints going in same direction
                 .filter(|(_, endpoint)| match dir {
                     Direction::Forward => node == &endpoint.source && end == &&endpoint.target,
                     Direction::Backwards => node == &endpoint.target && end == &&endpoint.source,
                 })
-                // Limit based on
+                // Find quantity
                 .map(|(_, endpoint)| match dir {
                     Direction::Forward => &endpoint.outgoing_quantity,
                     Direction::Backwards => &endpoint.incoming_quantity,
-                })
-                .fold(edge_repr, |repr, quantity| {
-                    EdgeRepresentation::from_quantity(quantity).max(repr)
                 });
+
+            endpoint_count += edge
+                .endpoints
+                .iter()
+                // Find endpoints going in same direction
+                .filter(|(_, endpoint)| match dir {
+                    Direction::Forward => node == &endpoint.source,
+                    Direction::Backwards =>  node == &endpoint.target,
+                })
+                .count();
+
+            for quantity in quantities {
+                edge_repr = EdgeRepresentation::from_quantity(quantity).max(edge_repr);
+            } 
         }
 
-        let output_edge_type =
-            only_edge_type.map_or_else(|| "Edge".to_string(), |edge| edge.name.to_string());
+        if endpoint_count > 1 && edge_repr == EdgeRepresentation::Result {
+            edge_repr = EdgeRepresentation::Option;
+        }
 
-        let return_type = edge_repr.get_return_type_python(output_edge_type, end);
+        let return_type = edge_repr.get_return_type_python(target_type, format!("Node.{end}"));
 
         let rename_attribute = nodes.get(node).and_then(|n| {
             n.attributes
@@ -275,7 +309,7 @@ fn write_getter_with_node<I: Debug + Ord>(
             new_name.to_snake_case()
         } else {
             let function_name = end.to_snake_case();
-            format!("{function_name}_{}", function_suffix(dir))
+            format!("get_{function_name}_{}", function_suffix(dir))
         };
 
         // Write get by node type method
@@ -293,7 +327,7 @@ fn write_getter_with_node<I: Debug + Ord>(
             s,
             "        nodes = filter(lambda ne: ne[1].get_type() == NodeType.{end}, nodes)"
         )?;
-        edge_repr.collect_results_python(node_func_name, s)?;
+        edge_repr.collect_results_python(edge_name_list, s)?;
         writeln!(s, "        return nodes")?;
     }
 
@@ -307,10 +341,9 @@ fn write_getter_with_edge<I: Debug + Ord>(
     schema_name: &str,
     edge_impl: &mut HashSet<(String, Direction)>,
     endpoints: &Vec<(&EndPoint<I>, &EdgeExp<I>)>,
-    grouped_by_start: &BTreeMap<&Ident<I>, Vec<&Ident<I>>>,
     grouped_by_edge: &BTreeMap<String, IndexSet<&Ident<I>>>,
 ) -> GenResult<()> {
-    for (endpoint, edge) in endpoints {
+    for (_, edge) in endpoints {
         let edge_type = &edge.name;
 
         let edge_func_name =
@@ -318,18 +351,33 @@ fn write_getter_with_edge<I: Debug + Ord>(
                 new_name.value.to_snake_case()
             } else {
                 let function_name = edge.name.to_snake_case();
-                format!("{function_name}_{}", function_suffix(dir))
+                format!("get_{function_name}_{}", function_suffix(dir))
             };
 
-        let target_type = match dir {
-            Direction::Forward => &endpoint.target,
-            Direction::Backwards => &endpoint.source,
-        };
+        let target_types = grouped_by_edge.get(edge.name.as_str()).unwrap();
+        let target_vec = target_types.into_iter().collect::<Vec<_>>();
+        let (target_type, _) = match target_vec.as_slice() {
+            [] => Err(GenError::ExportFailed(format!(
+                "Failed to find {} edge for {edge_type}",
+                function_suffix(dir)
+            ))),
 
-        let source_type = match dir {
-            Direction::Forward => &endpoint.source,
-            Direction::Backwards => &endpoint.target,
-        };
+            // Use specific type
+            [n] => Ok((format!("Node.{n}"), true)),
+
+            // Use any of the specific types
+            nodes if nodes.len() < 10 => {
+                let generics = nodes
+                    .iter()
+                    .map(|n| format!("Node.{n}"))
+                    .collect::<Vec<_>>()
+                    .join(" | ");
+                Ok((generics, true))
+            }
+
+            // Fallback if no specific type can be found
+            _ => Ok(("Node".to_string(), false)),
+        }?;
 
         // If there are multiple of the same edge type to a node there should only be one function implementation
         if edge_impl.contains(&(edge.name.clone(), dir)) {
@@ -338,52 +386,35 @@ fn write_getter_with_edge<I: Debug + Ord>(
             edge_impl.insert((edge.name.clone(), dir));
         }
 
-        // Check if there exists other edges of the same type frome the start of this node
-        let edges_of_type = grouped_by_start
-            .get(source_type)
-            .unwrap()
-            .iter()
-            .filter(|name| name == &&&edge.name)
-            .count();
+        let mut edge_repr = EdgeRepresentation::Result;
+        for (endpoint, e) in endpoints {
+            if e != edge {
+                continue;
+            }
 
-        // If there are other edges we cannot cast the node to a specific type
-        // And the must be more
-        if edges_of_type > 1 {
-            // Write get by edge type method
-            writeln!(s, "")?;
-            writeln!(s, "    def get_{edge_func_name}(self, g: '{schema_name}Graph') -> Iterable[Tuple['{edge_type}', 'Node']]:")?;
-            writeln!(s, "        edges = g.get_{}_filter(self.get_id(), lambda e: e.get_type() == EdgeType.{edge_type})", search_dir(dir))?;
-            writeln!(
-                s,
-                "        nodes = map(lambda e: (e.weight, g.get_node(e.get_outer())), edges)"
-            )?;
-            writeln!(s, "        return nodes")?;
-
-        // If there are no other edges we can safely cast the node to a specific type
-        } else {
             let quantity = match dir {
                 Direction::Forward => &endpoint.outgoing_quantity,
                 Direction::Backwards => &endpoint.incoming_quantity,
             };
 
-            let edge_repr = EdgeRepresentation::from_quantity(quantity);
-
-            let return_type = edge_repr.get_return_type_python(edge_type, target_type);
-
-            // Write get by edge type method
-            writeln!(s, "")?;
-            writeln!(
-                s,
-                "    def {edge_func_name}(self, g: '{schema_name}Graph') -> {return_type}:"
-            )?;
-            writeln!(s, "        edges = g.get_{}_filter(self.get_id(), lambda e: e.get_type() == EdgeType.{edge_type})", search_dir(dir))?;
-            writeln!(
-                s,
-                "        nodes = map(lambda e: (e.weight, g.get_node(e.get_outer())), edges)"
-            )?;
-            edge_repr.collect_results_python(edge_func_name, s)?;
-            writeln!(s, "        return nodes")?;
+            edge_repr = EdgeRepresentation::from_quantity(quantity).max(edge_repr);
         }
+
+        let return_type = edge_repr.get_return_type_python(format!("Edge.{edge_type}"), target_type);
+
+        // Write get by edge type method
+        writeln!(s, "")?;
+        writeln!(
+            s,
+            "    def {edge_func_name}(self, g: '{schema_name}Graph') -> {return_type}:"
+        )?;
+        writeln!(s, "        edges = g.get_{}_filter(self.get_id(), lambda e: e.get_type() == EdgeType.{edge_type})", search_dir(dir))?;
+        writeln!(
+            s,
+            "        nodes = map(lambda e: (e.weight, g.get_node(e.get_outer())), edges)"
+        )?;
+        edge_repr.collect_results_python(edge_func_name, s)?;
+        writeln!(s, "        return nodes")?;
     }
 
     Ok(())
@@ -413,7 +444,7 @@ fn write_getter_with_node_and_edge<I: Debug + Ord>(
         } else {
             let edge_name = edge.name.to_snake_case();
             let target_name = target_type.to_snake_case();
-            format!("{target_name}_via_{edge_name}_{}", function_suffix(dir))
+            format!("get_{target_name}_via_{edge_name}_{}", function_suffix(dir))
         };
 
         // If there are multiple of the same edge type to a node there should only be one function implementation
@@ -438,7 +469,7 @@ fn write_getter_with_node_and_edge<I: Debug + Ord>(
 
         let edge_repr = EdgeRepresentation::from_quantity(quantity);
 
-        let return_type = edge_repr.get_return_type_python(edge_type, target_type);
+        let return_type = edge_repr.get_return_type_python(format!("Edge.{edge_type}"), format!("Node.{target_type}"));
 
         // Write get by edge type method
         writeln!(s, "")?;
@@ -455,7 +486,7 @@ fn write_getter_with_node_and_edge<I: Debug + Ord>(
             s,
             "        nodes = filter(lambda ne: ne[1].get_type() == NodeType.{target_type}, nodes)"
         )?;
-        edge_repr.collect_results_python(edge_func_name, s)?;
+        edge_repr.collect_results_python(edge_type, s)?;
         writeln!(s, "        return nodes")?;
     }
 

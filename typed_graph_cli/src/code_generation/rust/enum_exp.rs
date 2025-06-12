@@ -34,6 +34,8 @@ impl<I> CodeGenerator<targets::Rust> for EnumExp<I> {
         writeln!(s, "#[allow(unused_imports)]")?;
         writeln!(s, "use std::collections::HashSet;")?;
         writeln!(s, "#[allow(unused_imports)]")?;
+        writeln!(s, "use typed_graph::*;")?;
+        writeln!(s, "#[allow(unused_imports)]")?;
         writeln!(
             s,
             "use typed_graph::{{GenericTypedError, GenericTypedResult}};"
@@ -60,7 +62,13 @@ impl<I> CodeGenerator<targets::Rust> for EnumExp<I> {
         let derive_funcs = self.attributes.get_functions("derive");
         for derived in derive_funcs {
             for value in &derived.values {
-                derive_traits.push(value.to_string());
+                let value_name = value.to_string();
+                
+                if self.is_only_units() && derive_traits.contains(&value_name) {
+                    continue;
+                }
+                
+                derive_traits.push(value_name);
             }
         }
         let derive_traits_s = derive_traits.join(", ");
@@ -283,14 +291,32 @@ pub(super) fn write_type_from<I: Clone + PartialEq + Ord + Default>(
 
     let enum_name = &t.name;
     let mut s = String::new();
+    writeln!(s, "")?;
+    writeln!(s, "#[allow(unused)]")?;
     writeln!(s, "impl TryFrom<{parent_ty}{old_type_generics}> for {enum_name}{new_type_generics} {{")?;
-    writeln!(s, "    type Error = GenericTypedError<String, String>;")?;
+    writeln!(s, "    type Error = UpgradeError;")?;
     writeln!(s, "")?;
     writeln!(
         s,
-        "    fn try_from(other: {parent_ty}{old_type_generics}) -> GenericTypedResult<Self, String, String> {{",
+        "    fn try_from(other: {parent_ty}{old_type_generics}) -> Result<Self, Self::Error> {{",
     )?;
     writeln!(s, "        match other {{")?;
+
+    let field_path = FieldPath::new_path(t.name.clone(), vec![]);
+    let enum_changes = changeset.get_changes(field_path);
+    for enum_change in enum_changes {
+        match enum_change {
+            SingleChange::RemovedVarient(name) => {
+                omit_convertion = true;
+                writeln!(
+                    s,
+                    "            {parent_ty}::{}: /* Insert convertion */,",
+                    name.varient_name
+                )?;
+            },
+            _ => ()
+        }
+    }
 
     for varient in &t.varients {
         let field_path = FieldPath::new_path(t.name.clone(), vec![varient.name().clone()]);

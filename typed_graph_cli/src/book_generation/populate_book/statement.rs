@@ -30,10 +30,8 @@ pub fn populate_statement_context(section: &mut SchemaDocContext, schema: &Schem
                 let content = populate_types(tmpl, section, n, schema)?;
                 section.add_type_section(n.name.to_string(), content)?;
             },
-            SchemaStm::Import(n) => {
-                // Imports are all stored in the imports section_header
-                // section.add_imports_section(n.name.to_string(), content)?;
-            }
+            // Imports are all stored in the imports section_header
+            SchemaStm::Import(_) => {}
         }
     }
     

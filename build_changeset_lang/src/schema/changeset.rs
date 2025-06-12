@@ -200,6 +200,7 @@ impl<I> ChangeSet<I> {
 
         let mut updated_schema = schema.clone();
         updated_schema.version = self.new_version.clone();
+        updated_schema.handler = self.handler.clone();
 
         for change in &self.changes {
             change.apply(&mut updated_schema)?;
@@ -220,7 +221,7 @@ impl<I> ChangeSet<I> {
             });
         }
 
-        Ok(schema)
+        Ok(updated_schema)
     }
 
     pub fn check_convertion_res(&self) -> ParserSlimResult<I, ()>

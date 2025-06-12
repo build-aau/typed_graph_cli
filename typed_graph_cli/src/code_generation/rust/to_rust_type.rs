@@ -1,5 +1,4 @@
 use build_script_shared::parsers::Types;
-use build_script_shared::InputType;
 
 pub trait ToRustType<I> {
     fn to_rust_type(&self) -> String;
@@ -81,12 +80,12 @@ impl<I> ToRustType<I> for Types<I> {
             }
             (Types::Option { inner: linner, .. }, Types::Option { inner: rinner, .. }) => {
                 if root {
-                    format!("{self_var}.map(|v| {}).map_or(Ok(None), |v: GenericTypedResult<_, String, String>| v.map(Some))?", linner.gen_convertion("v".to_string(), false, rinner))
+                    format!("{self_var}.map(|v| {}).map_or(Ok(None), |v: Result<_, UpgradeError>| v.map(Some))?", linner.gen_convertion("v".to_string(), false, rinner))
                 } else {
-                    format!("{self_var}.map(|v| {}).map_or(Ok(None), |v: GenericTypedResult<_, String, String>| v.map(Some))", linner.gen_convertion("v".to_string(), false, linner))
+                    format!("{self_var}.map(|v| {}).map_or(Ok(None), |v: Result<_, UpgradeError>| v.map(Some))", linner.gen_convertion("v".to_string(), false, linner))
                 }
             }
-            (t, Types::Option { inner, marker }) => {
+            (t, Types::Option { inner, .. }) => {
                 if root {
                     format!("Some({})", t.gen_convertion(self_var, true, inner))
                 } else {
@@ -98,19 +97,19 @@ impl<I> ToRustType<I> for Types<I> {
             | (Types::List { inner: linner, .. }, Types::Set { inner: rinner, .. })
             | (Types::Set { inner: linner, .. }, Types::List { inner: rinner, .. }) => {
                 if root {
-                    format!("{self_var}.into_iter().map(|v| {}).collect::<Result<_, GenericTypedError<String, String>>>()?", linner.gen_convertion("v".to_string(), false, rinner))
+                    format!("{self_var}.into_iter().map(|v| Ok({})).collect::<Result<_, UpgradeError>>()?", linner.gen_convertion("v".to_string(), true, rinner))
                 } else {
-                    format!("{self_var}.into_iter().map(|v| {}).collect::<Result<_, GenericTypedError<String, String>>>()", linner.gen_convertion("v".to_string(), false, rinner))
+                    format!("{self_var}.into_iter().map(|v| Ok({})).collect::<Result<_, UpgradeError>>()", linner.gen_convertion("v".to_string(), true, rinner))
                 }
             }
             (Types::Map { key: lkey, value: lvalue, .. }, Types::Map { key: rkey, value: rvalue, .. }) => {
                 if root {
-                    format!("{self_var}.into_iter().map(|(k, v)| Ok(({}, {}))).collect::<Result<Vec<(_, _)>, GenericTypedError<String, String>>>()?.into_iter().collect()", lkey.gen_convertion("k".to_string(), true, rkey), lvalue.gen_convertion("v".to_string(), true, rvalue))
+                    format!("{self_var}.into_iter().map(|(k, v)| Ok(({}, {}))).collect::<Result<Vec<(_, _)>, UpgradeError>>()?.into_iter().collect()", lkey.gen_convertion("k".to_string(), true, rkey), lvalue.gen_convertion("v".to_string(), true, rvalue))
                 } else {
-                    format!("Ok({self_var}.into_iter().map(|(k, v)| Ok(({}, {}))).collect::<Result<Vec<(_, _)>, GenericTypedError<String, String>>>()?.into_iter().collect())", lkey.gen_convertion("k".to_string(), true, rkey), lvalue.gen_convertion("v".to_string(), true, rvalue))
+                    format!("Ok({self_var}.into_iter().map(|(k, v)| Ok(({}, {}))).collect::<Result<Vec<(_, _)>, UpgradeError>>()?.into_iter().collect())", lkey.gen_convertion("k".to_string(), true, rkey), lvalue.gen_convertion("v".to_string(), true, rvalue))
                 }
             }
-            _ => format!("/* Reqires manual implementation from {} to {} */", self, new_type)
+            _ => format!("/* Requires manual implementation from {} to {} */", self, new_type)
         }
     }
 

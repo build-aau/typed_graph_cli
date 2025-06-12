@@ -1,6 +1,6 @@
 use std::env::current_dir;
 use std::fs::{create_dir_all, File};
-use std::path::{Path};
+use std::path::Path;
 use std::io::Write;
 use mdbook::{Config, MDBook};
 use tera::{Context, Tera};
@@ -10,7 +10,6 @@ use super::{DocBookContext, populate_schema_context};
 
 const BOOK: &'static [u8] = include_bytes!("../../book_template/book.toml");
 
-const SUMMARY: &'static str = include_str!("../../book_template/src/SUMMARY.md");
 const PRIMTIVES: &'static [u8] = include_bytes!("../../book_template/src/primitives.md");
 
 const TEMPLATES: &'static [(&'static str, &'static str)] = &[

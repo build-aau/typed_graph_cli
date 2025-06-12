@@ -234,6 +234,14 @@ impl<'c, I> EnumExp<I> {
 
         Ok(())
     }
+
+    pub fn has_external_ref(&self) -> bool {
+        let mut has_external_ref = false;
+        for varient in &self.varients {
+            has_external_ref |= varient.has_external_ref();
+        }
+        has_external_ref
+    }
 }
 
 impl<I: InputType> ParserDeserialize<I> for EnumExp<I> {
@@ -468,7 +476,7 @@ impl<I: Dummy<Faker> + Clone> Dummy<EnumExpOfType<I>> for EnumExp<I> {
                 name: Ident::<I>::new("Phantom".to_string(), Mark::dummy_with_rng(&Faker, rng)),
                 comments: Dummy::dummy_with_rng(&Faker, rng),
                 fields: phantom_fields,
-                marker: Mark::dummy_with_rng(&Faker, rng),
+                _marker: Mark::dummy_with_rng(&Faker, rng),
             };
 
             exp.varients.push(phantom_varient);

@@ -1,7 +1,6 @@
 @echo off
 
 SET BinPath="%USERPROFILE%\bin"
-set ArbiterPath=%BinPath%\arbiter.cmd
 
 if not exist %BinPath% (
     mkdir %BinPath%

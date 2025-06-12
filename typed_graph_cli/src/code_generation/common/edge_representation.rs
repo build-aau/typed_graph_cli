@@ -38,13 +38,13 @@ impl EdgeRepresentation {
     pub fn get_return_type_rust(&self, edge_type: impl Display, node_type: impl Display, schema_name: impl Display) -> String {
         match self {
             EdgeRepresentation::Result => {
-                format!("SchemaResult<(&'a {edge_type}<EK>, {node_type}), NK, EK, {schema_name}<NK, EK>>")
+                format!("SchemaResult<({edge_type}, {node_type}), NK, EK, {schema_name}<NK, EK>>")
             }
             EdgeRepresentation::Option => {
-                format!("SchemaResult<Option<(&'a {edge_type}<EK>, {node_type})>, NK, EK, {schema_name}<NK, EK>>")
+                format!("SchemaResult<Option<({edge_type}, {node_type})>, NK, EK, {schema_name}<NK, EK>>")
             }
             EdgeRepresentation::Iterator => {
-                format!("SchemaResult<impl Iterator<Item = (&'a {edge_type}<EK>, {node_type})> + 'a, NK, EK, {schema_name}<NK, EK>>")
+                format!("SchemaResult<impl Iterator<Item = ({edge_type}, {node_type})> + 'a, NK, EK, {schema_name}<NK, EK>>")
             }
         }
     }
@@ -72,7 +72,7 @@ impl EdgeRepresentation {
                 format!("Optional[Tuple['{edge_type}', '{node_type}']]")
             }
             EdgeRepresentation::Iterator => {
-                format!("Iterable[Tuple['{edge_type}', '{node_type}']]")
+                format!("Iterator[Tuple['{edge_type}', '{node_type}']]")
             }
         }
     }

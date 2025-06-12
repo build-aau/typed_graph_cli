@@ -5,6 +5,8 @@ use build_script_shared::parsers::*;
 use build_script_shared::*;
 use fake::Dummy;
 use fake::Faker;
+use nom::bytes::complete::tag;
+use nom::character::complete::char;
 use nom::combinator::*;
 use nom::error::context;
 use nom::multi::*;
@@ -24,6 +26,7 @@ pub type DefaultSchema<'a> = Schema<InputMarkerRef<'a>>;
 #[serde(bound = "I: Default + Clone")]
 pub struct Schema<I> {
     pub version: Ident<I>,
+    pub handler: Option<Ident<I>>,
     #[serde(flatten)]
     pub comments: Comments,
     content: Vec<SchemaStm<I>>,
@@ -32,13 +35,14 @@ pub struct Schema<I> {
 }
 
 impl<I> Schema<I> {
-    pub fn new(comments: Comments, version: Ident<I>, content: Vec<SchemaStm<I>>, marker: Mark<I>) -> Self
+    pub fn new(comments: Comments, version: Ident<I>, handler: Option<Ident<I>>, content: Vec<SchemaStm<I>>, marker: Mark<I>) -> Self
     where
         I: Ord,
     {
         Schema {
             comments,
             version,
+            handler,
             content: content.into_iter().collect(),
             marker,
         }
@@ -366,6 +370,7 @@ impl<I> Schema<I> {
         Schema {
             comments: self.comments,
             version: self.version.map(f),
+            handler: self.handler.map(|h| h.map(f)),
             content: self.content.into_iter().map(|stm| stm.map(f)).collect(),
             marker: self.marker.map(f),
         }
@@ -380,17 +385,20 @@ impl<I> Schema<I> {
         s.finish()
     }
 
-    /// Parse the a schema without doing performing and integrity check
+    /// Parse a schema without doing performing and integrity check
     pub fn parse_no_check(requires_header: bool) -> impl Fn(I) -> ParserResult<I, Self>
     where
         I: InputType,
     {
         move |s: I| {
-            let (s, header, comments) = if requires_header {
+            let (s, header, comments, handler) = if requires_header {
                 let (s, comments) = Comments::parse(s)?;
-                let (s, header) = context(
+                let (s, (header, handler)) = context(
                     "Parsing Schema version",
-                    surrounded('<', ws(Ident::ident_full), '>'),
+                    surrounded('<', pair(ws(Ident::ident_full), opt(preceded(
+                        tuple((ws(char(',')), tag("handler"), ws(char('=')))),
+                        Ident::ident,
+                    ))), '>'),
                 )(s)?;
 
                 if header.to_string().ends_with(".") {
@@ -400,9 +408,9 @@ impl<I> Schema<I> {
                     )));
                 }
 
-                (s, header, comments)
+                (s, header, comments, handler)
             } else {
-                (s, Ident::new_alone(""), Comments::new(Default::default()))
+                (s, Ident::new_alone(""), Comments::new(Default::default()), None)
             };
 
             let (s, (content, marker)) = context(
@@ -416,6 +424,7 @@ impl<I> Schema<I> {
             let schema = Schema {
                 comments,
                 version: header,
+                handler,
                 content,
                 marker,
             };
@@ -429,6 +438,7 @@ impl<I: Ord + Hash + Debug> Hash for Schema<I> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.comments.hash(state);
         self.version.hash(state);
+        self.handler.hash(state);
         let content: Vec<_> = self.iter().collect();
         content.hash(state);
     }
@@ -463,7 +473,12 @@ impl<I> ParserSerialize for Schema<I> {
     fn compose<W: std::fmt::Write>(&self, f: &mut W, ctx: ComposeContext) -> ComposerResult<()> {
         if !self.version.is_empty() {
             self.comments.compose(f, ctx)?;
-            writeln!(f, "<{}>", self.version)?;
+            write!(f, "<{}", self.version)?;
+            if let Some(handler) = &self.handler {
+                write!(f, ", handler=")?;
+                handler.compose(f, ctx.set_indents(0))?;
+            }
+            writeln!(f, ">")?;
         }
 
         for stm in &self.content {
@@ -569,6 +584,11 @@ impl<I: Dummy<Faker> + Clone> Dummy<Faker> for Schema<I> {
         Schema {
             comments: Comments::dummy_with_rng(&Faker, rng),
             version: Ident::dummy_with_rng(config, rng),
+            handler: if rng.gen_bool(0.5) {
+                Some(Ident::dummy_with_rng(config, rng))
+            } else {
+                None
+            },
             content: content_type
                 .into_iter()
                 .map(|(name, order, generic_count, ty)| {
@@ -620,6 +640,7 @@ fn schema_reorder_hash_test() {
     let schema0 = Schema::new(
         comments.clone(),
         version.clone(),
+        None,
         vec![
             SchemaStm::Import(import0.clone()),
             SchemaStm::Import(import1.clone()),
@@ -630,6 +651,7 @@ fn schema_reorder_hash_test() {
     let schema1 = Schema::new(
         comments,
         version,
+        None,
         vec![SchemaStm::Import(import1), SchemaStm::Import(import0)],
         mark,
     );

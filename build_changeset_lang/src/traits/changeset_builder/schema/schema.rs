@@ -193,6 +193,8 @@ where
             }
         }
 
+        changes.handler = new_version.handler.clone();
+        
         Ok(changes)
     }
 }

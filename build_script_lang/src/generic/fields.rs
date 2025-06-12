@@ -253,6 +253,14 @@ impl<I> Fields<I> {
             marker: self.marker.map(f),
         }
     }
+
+    pub fn has_external_ref(&self) -> bool {
+        let mut has_external_ref = false;
+        for f in &self.fields {
+            has_external_ref |= f.field_type.has_external_ref();
+        }
+        has_external_ref
+    }
 }
 
 impl<I: InputType> ParserDeserialize<I> for Fields<I> {

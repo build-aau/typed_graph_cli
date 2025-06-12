@@ -30,7 +30,7 @@ impl CodeGenerator<targets::Rust> for Project {
         for schema_id in self.iter_schema() {
             let schema = self.get_schema(schema_id)?;
             let added_files =
-                CodeGenerator::<targets::Rust>::aggregate_content(schema, output_folder)?;
+                CodeGenerator::<targets::Rust>::aggregate_content(&(self, schema), output_folder)?;
             new_files.append(added_files);
         }
 
@@ -39,7 +39,7 @@ impl CodeGenerator<targets::Rust> for Project {
             let new_schema = self.get_schema(&changeset.new_version)?;
             let old_schema = self.get_schema(&changeset.old_version)?;
             let added_files = CodeGenerator::<targets::Rust>::aggregate_content(
-                &(changeset, old_schema, new_schema),
+                &(changeset, old_schema, new_schema, self),
                 output_folder,
             )?;
             new_files.append(added_files);
@@ -74,13 +74,13 @@ fn write_mod(
         writeln!(
             project_mod,
             "pub mod {};",
-            CodeGenerator::<targets::Rust>::get_filename(schema)
+            CodeGenerator::<targets::Rust>::get_filename(&(project, schema))
         )?;
         writeln!(project_mod, "#[allow(unused)]")?;
         writeln!(
             project_mod,
             "pub use {}::{};",
-            CodeGenerator::<targets::Rust>::get_filename(schema),
+            CodeGenerator::<targets::Rust>::get_filename(&(project, schema)),
             schema.version.to_string().replace(".", "_")
         )?;
     }
@@ -111,13 +111,24 @@ fn write_any_schema(
     writeln!(s, "use typed_graph::*;")?;
     writeln!(s, "use std::str::FromStr;")?;
     writeln!(s, "")?;
-    writeln!(s, "#[derive(Serialize, Deserialize, Clone, Debug)]")?;
+    writeln!(s, "#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Hash)]")?;
     writeln!(s, "#[serde(untagged, bound = \"NK: Clone, EK: Clone\")]")?;    
     writeln!(s, "pub enum AnySchema<NK, EK> {{")?;
     for schema_version in project.iter_schema() {
         let schema_name = schema_version.replace(".", "_");
         writeln!(s, "    {schema_name}({schema_name}<NK, EK>),")?;
     }
+    writeln!(s, "}}")?;
+    writeln!(s, "")?;
+    writeln!(s, "impl<NK, EK> AnySchema<NK, EK> {{")?;
+    writeln!(s, "    pub fn parents(&self) -> &'static [&'static str] {{")?;
+    writeln!(s, "        match self {{")?;
+    for schema_version in project.iter_schema() {
+        let schema_name = schema_version.replace(".", "_");
+        writeln!(s, "        AnySchema::{schema_name}(s) => {schema_name}::<NK, EK>::parents(),")?;
+    }
+    writeln!(s, "        }}")?;
+    writeln!(s, "    }}")?;
     writeln!(s, "}}")?;
     writeln!(s, "")?;
     writeln!(
@@ -238,21 +249,14 @@ fn write_any_graph(
     writeln!(s, "")?;
     writeln!(s, "    fn allow_node(&self, node_ty: <Self::N as typed_graph::Typed>::Type) -> Result<(), typed_graph::DisAllowedNode> {{")?;
     writeln!(s, "        match self {{")?;
-    writeln!(s, "            AnySchema::V0_9_0(schema) => {{")?;
-    writeln!(s, "                schema.allow_node(")?;
-    writeln!(s, "                    node_ty.parse().map_err(|_| DisAllowedNode::InvalidType)?")?;
-    writeln!(s, "                )?")?;
-    writeln!(s, "            }},")?;
-    writeln!(s, "            AnySchema::V1_0_0(schema) => {{")?;
-    writeln!(s, "                schema.allow_node(")?;
-    writeln!(s, "                    node_ty.parse().map_err(|_| DisAllowedNode::InvalidType)?")?;
-    writeln!(s, "                )?")?;
-    writeln!(s, "            }},")?;
-    writeln!(s, "            AnySchema::V1_1_0(schema) => {{")?;
-    writeln!(s, "                schema.allow_node(")?;
-    writeln!(s, "                    node_ty.parse().map_err(|_| DisAllowedNode::InvalidType)?")?;
-    writeln!(s, "                )?")?;
-    writeln!(s, "            }}")?;
+    for schema_version in project.iter_schema() {
+        let schema_name = schema_version.replace(".", "_");
+        writeln!(s, "            AnySchema::{schema_name}(schema) => {{")?;
+        writeln!(s, "                schema.allow_node(")?;
+        writeln!(s, "                    node_ty.parse().map_err(|_| DisAllowedNode::InvalidType)?")?;
+        writeln!(s, "                )?")?;
+        writeln!(s, "            }},")?;
+    }
     writeln!(s, "        }}")?;
     writeln!(s, "        Ok(())")?;
     writeln!(s, "    }}")?;

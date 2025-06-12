@@ -52,7 +52,7 @@ pub enum EnumVarient<I> {
         comments: Comments,
         fields: Fields<I>,
         #[serde(skip)]
-        marker: Mark<I>,
+        _marker: Mark<I>,
     },
     Opaque {
         name: Ident<I>,
@@ -61,7 +61,7 @@ pub enum EnumVarient<I> {
         comments: Comments,
         ty: Types<I>,
         #[serde(skip)]
-        marker: Mark<I>,
+        _marker: Mark<I>,
     },
     Unit {
         #[serde(flatten)]
@@ -69,7 +69,7 @@ pub enum EnumVarient<I> {
         name: Ident<I>,
         comments: Comments,
         #[serde(skip)]
-        marker: Mark<I>,
+        _marker: Mark<I>,
     },
 }
 
@@ -142,37 +142,37 @@ impl<I> EnumVarient<I> {
                 name,
                 comments,
                 fields,
-                marker,
+                _marker: marker,
             } => EnumVarient::Struct {
                 attributes: attributes.map(f),
                 name: name.map(f),
                 comments,
                 fields: fields.map(f),
-                marker: marker.map(f),
+                _marker: marker.map(f),
             },
             EnumVarient::Unit {
                 attributes,
                 name,
                 comments,
-                marker,
+                _marker: marker,
             } => EnumVarient::Unit {
                 attributes: attributes.map(f),
                 name: name.map(f),
                 comments,
-                marker: marker.map(f),
+                _marker: marker.map(f),
             },
             EnumVarient::Opaque {
                 attributes,
                 name,
                 comments,
                 ty,
-                marker,
+                _marker: marker,
             } => EnumVarient::Opaque {
                 attributes: attributes.map(f),
                 name: name.map(f),
                 ty: ty.map(f),
                 comments,
-                marker: marker.map(f),
+                _marker: marker.map(f),
             },
         }
     }
@@ -298,14 +298,22 @@ impl<I> EnumVarient<I> {
             EnumVarient::Unit { .. } => (),
         }
     }
+
+    pub fn has_external_ref(&self) -> bool {
+        match self {
+            EnumVarient::Struct { fields, .. } => fields.has_external_ref(),
+            EnumVarient::Opaque { ty, .. } => ty.has_external_ref(),
+            EnumVarient::Unit { .. } => false,
+        }
+    }
 }
 
 impl<I> Marked<I> for EnumVarient<I> {
     fn marker(&self) -> &Mark<I> {
         match self {
-            EnumVarient::Struct { marker, .. } => marker,
-            EnumVarient::Opaque { marker, .. } => marker,
-            EnumVarient::Unit { marker, .. } => marker,
+            EnumVarient::Struct { _marker: marker, .. } => marker,
+            EnumVarient::Opaque { _marker: marker, .. } => marker,
+            EnumVarient::Unit { _marker: marker, .. } => marker,
         }
     }
 }
@@ -325,7 +333,7 @@ impl<I: InputType> ParserDeserialize<I> for EnumVarient<I> {
                     name: name.clone(),
                     comments: comments.clone(),
                     fields,
-                    marker: marker.clone(),
+                    _marker: marker.clone(),
                 },
             ),
             map(
@@ -336,14 +344,14 @@ impl<I: InputType> ParserDeserialize<I> for EnumVarient<I> {
                     name: name.clone(),
                     comments: comments.clone(),
                     ty,
-                    marker: marker.clone(),
+                    _marker: marker.clone(),
                 },
             ),
             success(EnumVarient::Unit {
                 attributes: attributes.clone(),
                 name: name.clone(),
                 comments: comments.clone(),
-                marker: marker.clone(),
+                _marker: marker.clone(),
             }),
         ))(s)?;
 
@@ -458,7 +466,7 @@ impl<I: Dummy<Faker>> Dummy<Faker> for EnumVarient<I> {
                         name: Dummy::dummy_with_rng(config, rng),
                         comments: Dummy::dummy_with_rng(config, rng),
                         fields,
-                        marker: Dummy::dummy_with_rng(config, rng),
+                        _marker: Dummy::dummy_with_rng(config, rng),
                     }
                 } else {
                     EnumVarient::Unit {
@@ -470,7 +478,7 @@ impl<I: Dummy<Faker>> Dummy<Faker> for EnumVarient<I> {
                         .fake_with_rng(rng),
                         name: Dummy::dummy_with_rng(config, rng),
                         comments: Dummy::dummy_with_rng(config, rng),
-                        marker: Dummy::dummy_with_rng(config, rng),
+                        _marker: Dummy::dummy_with_rng(config, rng),
                     }
                 }
             }
@@ -487,7 +495,7 @@ impl<I: Dummy<Faker>> Dummy<Faker> for EnumVarient<I> {
                     name: Dummy::dummy_with_rng(config, rng),
                     comments: Dummy::dummy_with_rng(config, rng),
                     ty,
-                    marker: Dummy::dummy_with_rng(config, rng),
+                    _marker: Dummy::dummy_with_rng(config, rng),
                 }
             }
             _ => EnumVarient::Unit {
@@ -499,7 +507,7 @@ impl<I: Dummy<Faker>> Dummy<Faker> for EnumVarient<I> {
                 .fake_with_rng(rng),
                 name: Dummy::dummy_with_rng(config, rng),
                 comments: Dummy::dummy_with_rng(config, rng),
-                marker: Dummy::dummy_with_rng(config, rng),
+                _marker: Dummy::dummy_with_rng(config, rng),
             },
         }
     }

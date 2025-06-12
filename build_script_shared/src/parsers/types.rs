@@ -475,6 +475,30 @@ impl<I> Types<I> {
             )))
         }
     }
+
+    pub fn has_external_ref(&self) -> bool {
+        match self {
+            Types::String(_)
+            | Types::Bool(_)
+            | Types::F64(_)
+            | Types::F32(_)
+            | Types::Usize(_)
+            | Types::U64(_)
+            | Types::U32(_)
+            | Types::U16(_)
+            | Types::U8(_)
+            | Types::Isize(_)
+            | Types::I64(_)
+            | Types::I32(_)
+            | Types::I16(_)
+            | Types::I8(_) => false,
+            Types::Option { inner, .. } => inner.has_external_ref(),
+            Types::List { inner, .. } => inner.has_external_ref(),
+            Types::Set { inner, .. } => inner.has_external_ref(),
+            Types::Map { key, value, .. } => key.has_external_ref() || value.has_external_ref(),
+            Types::Reference { .. } => true,
+        }
+    }
 }
 
 impl<I: InputType> ParserDeserialize<I> for Types<I> {

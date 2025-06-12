@@ -67,20 +67,20 @@ impl<I> AddedVarient<I> {
                     name: self.varient_name.clone(),
                     comments: self.comments.get_doc_comments(),
                     fields: Default::default(),
-                    marker: Mark::null(),
+                    _marker: Mark::null(),
                 },
                 AddedVarientType::Opaque(ty) => EnumVarient::Opaque {
                     attributes: self.attributes.clone(),
                     name: self.varient_name.clone(),
                     comments: self.comments.get_doc_comments(),
                     ty: ty.clone(),
-                    marker: Mark::null(),
+                    _marker: Mark::null(),
                 },
                 AddedVarientType::Unit => EnumVarient::Unit {
                     attributes: self.attributes.clone(),
                     name: self.varient_name.clone(),
                     comments: self.comments.get_doc_comments(),
-                    marker: Mark::null(),
+                    _marker: Mark::null(),
                 },
             };
             e.varients.insert(self.order as usize, new_varient);

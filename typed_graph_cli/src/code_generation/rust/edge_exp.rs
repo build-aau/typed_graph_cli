@@ -1,9 +1,9 @@
 use build_changeset_lang::{ChangeSet, FieldPath, SingleChange};
-use build_script_lang::schema::{EdgeExp, EndPoint, LowerBound, NodeExp, Quantifier, Schema};
-use build_script_shared::parsers::{Ident, ParserDeserialize};
+use build_script_lang::schema::{EdgeExp, EndPoint, NodeExp, Schema};
+use build_script_shared::parsers::Ident;
 use indexmap::IndexSet;
 use std::collections::{BTreeMap, HashSet};
-use std::fmt::{format, Debug, Display, Write};
+use std::fmt::{Debug, Write};
 use std::path::Path;
 
 use crate::common::{function_suffix, rename_attribute_name, search_dir, EdgeRepresentation};
@@ -536,15 +536,17 @@ where
 
     // Implement From Edge to Edge type
     let mut s = String::new();
+    writeln!(s, "")?;
+    writeln!(s, "#[allow(unused)]")?;
     writeln!(
         s,
         "impl<EK> TryFrom<{parent_ty}<EK>> for {edge_type}<EK> {{"
     )?;
-    writeln!(s, "    type Error = GenericTypedError<String, String>;")?;
+    writeln!(s, "    type Error = UpgradeError;")?;
     writeln!(s, "")?;
     writeln!(
         s,
-        "    fn try_from(other: {parent_ty}<EK>) -> GenericTypedResult<Self, String, String> {{"
+        "    fn try_from(other: {parent_ty}<EK>) -> Result<Self, Self::Error> {{"
     )?;
     writeln!(s, "        Ok({edge_type} {{")?;
     writeln!(s, "            id: other.id.into(),")?;
@@ -718,36 +720,68 @@ fn write_getter_with_node<I: Debug + Ord>(
         let edge_name_list = edge_names.join(", ");
         let edge_types_patterns = edge_types.join(" | ");
 
-        // If there are no other types of edge to the given node then we can safely cast the edge into the specific one
-        let only_edge_type = if edges.len() == 1 {
-            Some(edges.get(0).unwrap())
-        } else {
-            None
-        };
+        let edge_names = edges.into_iter().map(|e| &e.name).collect::<Vec<_>>();
+        let (source_type, requires_downcast) = match edge_names.as_slice() {
+            [] => Err(GenError::ExportFailed(format!(
+                "Failed to find {} edge for {end}",
+                function_suffix(dir)
+            ))),
 
+            // Use specific type
+            [edge_type] => Ok((format!("&'a {edge_type}<EK>"), true)),
+
+            // Use any of the specific types
+            edge_types if nodes.len() < 10 => {
+                let len = nodes.len();
+                let generics = edge_types
+                    .iter()
+                    .map(|e| format!("&'a {e}<EK>"))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                Ok((format!("&'a Either{len}<{generics}>"), true))
+            }
+
+            // Fallback if no specific type can be found
+            _ => Ok(("&'a Edge<EK>".to_string(), false)),
+        }?;
+
+        let mut endpoint_count = 0;
         let mut edge_repr = EdgeRepresentation::Result;
         for edge in edges {
-            edge_repr = edge
+            let quantities = edge
                 .endpoints
                 .iter()
+                // Find endpoints going in same direction
                 .filter(|(_, endpoint)| match dir {
                     Direction::Forward => node == &endpoint.source && end == &&endpoint.target,
                     Direction::Backwards => node == &endpoint.target && end == &&endpoint.source,
                 })
-                // Limit based on
+                // Find quantity
                 .map(|(_, endpoint)| match dir {
                     Direction::Forward => &endpoint.outgoing_quantity,
                     Direction::Backwards => &endpoint.incoming_quantity,
-                })
-                .fold(edge_repr, |repr, quantity| {
-                    EdgeRepresentation::from_quantity(quantity).max(repr)
                 });
+
+            endpoint_count += edge
+                .endpoints
+                .iter()
+                // Find endpoints going in same direction
+                .filter(|(_, endpoint)| match dir {
+                    Direction::Forward => node == &endpoint.source,
+                    Direction::Backwards =>  node == &endpoint.target,
+                })
+                .count();
+
+            for quantity in quantities {
+                edge_repr = EdgeRepresentation::from_quantity(quantity).max(edge_repr);
+            } 
         }
 
-        let output_edge_type =
-            only_edge_type.map_or_else(|| "Edge".to_string(), |edge| edge.name.to_string());
+        if endpoint_count > 1 && edge_repr == EdgeRepresentation::Result {
+            edge_repr = EdgeRepresentation::Option;
+        }
 
-        let return_type = edge_repr.get_return_type_rust(&output_edge_type, format!("&'a {end}<NK>"), schema_name);
+        let return_type = edge_repr.get_return_type_rust(&source_type, format!("&'a {end}<NK>"), schema_name);
 
         let rename_attribute = nodes.get(node).and_then(|n| {
             n.attributes
@@ -775,8 +809,8 @@ fn write_getter_with_node<I: Debug + Ord>(
         writeln!(s, "           .get_{}_filter(self.get_id(), |e| matches!(e.get_type(), {edge_types_patterns}))?", search_dir(dir))?;
         writeln!(s, "           .filter_map(|e| Some((e.get_weight(), g.get_node_downcast(e.get_outer()).ok()?)))")?;
         // Cast the node into a specific type
-        if only_edge_type.is_some() {
-            writeln!(s, "           .map(|(e, n)| (Downcast::<_, _, &'a {output_edge_type}<EK>, {schema_name}<NK, EK>>::downcast(e).unwrap(), n))")?;
+        if requires_downcast {
+            writeln!(s, "           .map(|(e, n)| (Downcast::<_, _, {source_type}, {schema_name}<NK, EK>>::downcast(e).unwrap(), n))")?;
         }
         edge_repr.collect_results_rust(edge_name_list, s)?;
         writeln!(s, "       )")?;
@@ -853,7 +887,7 @@ fn write_getter_with_edge<I: Debug + Ord>(
             edge_repr = EdgeRepresentation::from_quantity(quantity).max(edge_repr);
         }
 
-        let return_type = edge_repr.get_return_type_rust(edge_type, target_type, schema_name);
+        let return_type = edge_repr.get_return_type_rust(format!("&'a {edge_type}<EK>"), target_type, schema_name);
 
         // Write get by edge type method
         writeln!(s, "")?;
@@ -923,7 +957,7 @@ fn write_getter_with_node_and_edge<I: Ord + Debug>(
             Direction::Backwards => &endpoint.incoming_quantity,
         };
         let edge_repr = EdgeRepresentation::from_quantity(quantity);
-        let return_type = edge_repr.get_return_type_rust(edge_type, format!("&'a {target_type}<NK>"), schema_name);
+        let return_type = edge_repr.get_return_type_rust(format!("&'a {edge_type}<EK>"), format!("&'a {target_type}<NK>"), schema_name);
 
         // Write get by edge type method
         writeln!(s, "")?;

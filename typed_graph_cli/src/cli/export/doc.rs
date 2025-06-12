@@ -65,6 +65,9 @@ impl Process<ProjectSettings> for Doc {
             println!("Building docs to {}", out_dir.join("book").to_string_lossy());
             build_doc_book(&out_dir)?;
         }
+
+        drop(tmp_dir);
+
         Ok(())
     }
 }

@@ -231,20 +231,6 @@ where
                                 old_order: 0,
                             }));
                         }
-                        /*
-                        edited_varients.push(SingleChange::RemovedVarient(RemovedVarient {
-                            type_name: self.name.clone(),
-                            varient_name: varient.name().clone(),
-                        }));
-                        edited_varients.push(SingleChange::AddedVarient(AddedVarient {
-                            attributes: attributes.clone(),
-                            comments: new_vairent.comments().get_doc_comments(),
-                            type_name: self.name.clone(),
-                            varient_name: varient.name().clone(),
-                            varient_type: AddedVarientType::Opaque(ty.clone()),
-                            order: order as u64,
-                        }));
-                        */
                     }
                 }
             }

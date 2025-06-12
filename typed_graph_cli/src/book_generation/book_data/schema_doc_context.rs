@@ -70,10 +70,6 @@ impl SchemaDocContext {
         SchemaDocContext::add_section(title, content, &self.schema_path, Path::new("types"), &mut self.types)
     }
 
-    pub fn add_imports_section(&mut self, title: String, content: String) -> GenResult<()>{
-        SchemaDocContext::add_section(title, content, &self.schema_path, Path::new("imports"), &mut self.imports)
-    }
-
     fn add_section(title: String, content: String, schema_path: &Path, relative_path: &Path, stm_list: &mut Vec<StatementDocContext>) -> GenResult<()>{
         let relative_path = relative_path.join(format!("{title}.md"));
         let mut f = File::create(&schema_path.join(&relative_path))?;

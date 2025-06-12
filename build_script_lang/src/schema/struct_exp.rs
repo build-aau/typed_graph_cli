@@ -167,6 +167,10 @@ impl<I> StructExp<I> {
 
         Ok(())
     }
+
+    pub fn has_external_ref(&self) -> bool {
+        self.fields.has_external_ref()
+    }
 }
 
 impl<I: InputType> ParserDeserialize<I> for StructExp<I> {

@@ -43,6 +43,7 @@ impl Process<ProjectSettings> for NewProject {
             let id = prj.add_schema(Schema::new(
                 Comments::default(),
                 Ident::new(name, input.clone()),
+                None,
                 Vec::default(),
                 input
             ))?;

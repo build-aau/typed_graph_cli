@@ -4,18 +4,17 @@ use super::{
 use crate::*;
 use build_script_lang::schema::{Schema, SchemaStm};
 use build_script_shared::parsers::Ident;
-use build_script_shared::parsers::ParserSerialize;
 use std::collections::HashSet;
 use std::fmt::{Debug, Write};
 use std::fs::create_dir;
 use std::path::Path;
 
-impl<I> CodeGenerator<targets::Rust> for Schema<I>
+impl<I> CodeGenerator<targets::Rust> for (&Project, &Schema<I>)
 where
     I: Ord + Debug,
 {
     fn get_filename(&self) -> String {
-        self.version.to_string().replace(".", "_").to_snake_case()
+        self.1.version.to_string().replace(".", "_").to_snake_case()
     }
 
     fn aggregate_content<P: AsRef<std::path::Path>>(
@@ -50,19 +49,19 @@ where
         let mut new_files = GeneratedCode::new();
 
         write_content(
-            self,
+            &self.1,
             &mut new_files,
             &nodes_folder,
             &structs_folder,
             &edges_folder,
             &types_folder,
         )?;
-        write_nodes_rs(self, &mut new_files, &schema_folder)?;
-        write_node_type_rs(self, &mut new_files, &schema_folder)?;
-        write_edges_rs(self, &mut new_files, &schema_folder)?;
-        write_edge_type_rs(self, &mut new_files, &schema_folder)?;
+        write_nodes_rs(&self.1, &mut new_files, &schema_folder)?;
+        write_node_type_rs(&self.1, &mut new_files, &schema_folder)?;
+        write_edges_rs(&self.1, &mut new_files, &schema_folder)?;
+        write_edge_type_rs(&self.1, &mut new_files, &schema_folder)?;
         write_mod(
-            self,
+            &self.1,
             &mut new_files,
             &schema_folder,
             &nodes_folder,
@@ -70,8 +69,8 @@ where
             &edges_folder,
             &types_folder,
         )?;
-        write_schema_impl_rs(self, &mut new_files, &schema_folder)?;
-        write_edge_endpoints(self, &mut new_files, &nodes_folder)?;
+        write_schema_impl_rs(&self.1, self.0, &mut new_files, &schema_folder)?;
+        write_edge_endpoints(&self.1, &mut new_files, &nodes_folder)?;
 
         Ok(new_files)
     }
@@ -203,12 +202,6 @@ where
     writeln!(schema_mod, "#[allow(unused)]")?;
     writeln!(schema_mod, "pub use super::imports::*;")?;
 
-    writeln!(
-        schema_mod,
-        "pub const SCHEMA_DEFINITION: &'static str = r#\"{}\"#;",
-        schema.serialize_to_string()?
-    )?;
-
     let imports_path = schema_folder.join("imports.rs");
     new_files.create_file(imports_path);
 
@@ -219,6 +212,7 @@ where
 
 fn write_schema_impl_rs<I: Ord>(
     schema: &Schema<I>,
+    project: &Project,
     new_files: &mut GeneratedCode,
     schema_folder: &Path,
 ) -> GenResult<()> {
@@ -241,7 +235,9 @@ fn write_schema_impl_rs<I: Ord>(
         "pub type {schema_name}Graph<NK, EK> = TypedGraph<NK, EK, {schema_name}<NK, EK>>;"
     )?;
     writeln!(schema_rs, "")?;
-    writeln!(schema_rs, "#[derive(Clone, Debug, Serialize, Deserialize)]")?;
+    writeln!(schema_rs, "pub const {schema_name}_NAME: &'static str = \"{schema_version}\";")?;
+    writeln!(schema_rs, "")?;
+    writeln!(schema_rs, "#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]")?;
 
     writeln!(schema_rs, "#[serde(bound = \"NK: Clone, EK: Clone\")]")?;
     writeln!(schema_rs, "#[serde(try_from = \"String\")]")?;
@@ -249,6 +245,25 @@ fn write_schema_impl_rs<I: Ord>(
     writeln!(schema_rs, "pub struct {schema_name}<NK, EK> {{")?;
     writeln!(schema_rs, "    ek: PhantomData<EK>,")?;
     writeln!(schema_rs, "    nk: PhantomData<NK>,")?;
+    writeln!(schema_rs, "}}")?;
+    writeln!(schema_rs, "")?;
+    writeln!(
+        schema_rs,
+        "impl<NK, EK> {schema_name}<NK, EK> {{"
+    )?;
+    writeln!(schema_rs, "    pub const fn name() -> &'static str {{")?;
+    writeln!(schema_rs, "        \"{schema_version}\"")?;
+    writeln!(schema_rs, "    }}")?;
+    writeln!(schema_rs, "")?;
+    
+    let parents = project.get_parents(&schema_version);
+    writeln!(schema_rs, "    pub const fn parents() -> &'static [&'static str] {{")?;
+    writeln!(schema_rs, "        &[")?;
+    for parent in parents.iter() {
+        writeln!(schema_rs, "            \"{parent}\",")?;
+    }
+    writeln!(schema_rs, "        ]")?;
+    writeln!(schema_rs, "    }}")?;
     writeln!(schema_rs, "}}")?;
     writeln!(schema_rs, "")?;
     writeln!(
@@ -347,11 +362,10 @@ fn write_schema_impl_rs<I: Ord>(
         schema_rs,
         "    fn from_str(value: &str) -> Result<Self, Self::Err> {{"
     )?;
-    writeln!(schema_rs, "        let schema_name = Self::default().to_string();")?;
-    writeln!(schema_rs, "        if value != schema_name {{")?;
+    writeln!(schema_rs, "        if value != \"{schema_version}\" {{")?;
     writeln!(
         schema_rs,
-        "            return Err(GenericTypedError::InvalidSchemaName(value.to_string(), schema_name));"
+        "            return Err(GenericTypedError::InvalidSchemaName(value.to_string(), \"{schema_version}\".to_string()));"
     )?;
     writeln!(schema_rs, "        }}")?;
     writeln!(schema_rs, "        Ok({schema_name}::default())")?;
@@ -405,7 +419,7 @@ pub(super) fn write_migrate_schema<I: Ord>(
         let node_type = &n.name;
 
         if new_types.contains(&n.name) {
-            writeln!(s, "            Node::{node_type}(e) => Ok(Some({new_path}::Node::{node_type}(e.try_into().map_err(|e: GenericTypedError<String, String>| SchemaError::<NK, EK, {new_schema_full_path}<NK, EK>>::UnhandledMigrationError(e.to_string()))?))),")?;
+            writeln!(s, "            Node::{node_type}(e) => Ok(Some({new_path}::Node::{node_type}(e.try_into().map_err(|e: UpgradeError| SchemaError::<NK, EK, {new_schema_full_path}<NK, EK>>::UpgradeError(e))?))),")?;
         } else {
             writeln!(s, "            Node::{node_type}(_) => Ok(None),")?;
         }
@@ -421,7 +435,7 @@ pub(super) fn write_migrate_schema<I: Ord>(
         let edge_type = &e.name;
 
         if new_types.contains(&e.name) {
-            writeln!(s, "            Edge::{edge_type}(e) => Ok(Some({new_path}::Edge::{edge_type}(e.try_into().map_err(|e: GenericTypedError<String, String>| SchemaError::<NK, EK, {new_schema_full_path}<NK, EK>>::UnhandledMigrationError(e.to_string()))?))),")?;
+            writeln!(s, "            Edge::{edge_type}(e) => Ok(Some({new_path}::Edge::{edge_type}(e.try_into().map_err(|e: UpgradeError| SchemaError::<NK, EK, {new_schema_full_path}<NK, EK>>::UpgradeError(e))?))),")?;
         } else {
             writeln!(s, "            Edge::{edge_type}(_) => Ok(None),")?;
         }

@@ -135,12 +135,14 @@ pub(super) fn write_struct_from<I: Clone + PartialEq + Ord + Default>(
         create_generics(&n.name, &n.generics, changeset)?;
 
     let mut s = String::new();
+    writeln!(s, "")?;
+    writeln!(s, "#[allow(unused)]")?;
     writeln!(s, "impl TryFrom<{parent_ty}{old_type_generics}> for {struct_type}{new_type_generics} {{")?;
-    writeln!(s, "    type Error = GenericTypedError<String, String>;")?;
+    writeln!(s, "    type Error = UpgradeError;")?;
     writeln!(s, "")?;
     writeln!(
         s,
-        "    fn try_from(other: {parent_ty}{old_type_generics}) -> GenericTypedResult<Self, String, String> {{"
+        "    fn try_from(other: {parent_ty}{old_type_generics}) -> Result<Self, Self::Error> {{"
     )?;
     writeln!(s, "       Ok({struct_type} {{")?;
     for field_value in n.fields.iter() {
@@ -158,12 +160,25 @@ pub(super) fn write_struct_from<I: Clone + PartialEq + Ord + Default>(
                 .iter()
                 .find(|c| matches!(c, SingleChange::EditedFieldType(_)));
             if let Some(SingleChange::EditedFieldType(changed_type)) = changed_type {
-                writeln!(
-                    s,
-                    "           {field_name}: {},",
-                    changed_type.old_type()
-                        .gen_convertion(format!("other.{field_name}"), true, changed_type.new_type())
-                )?;
+                let mut need_manual_implementation = false;
+                if !changed_type
+                    .old_type()
+                    .is_gen_compatible(changed_type.new_type())
+                {
+                    // We cannot trust the auto generated conversion so a manual one should be made instead
+                    omit_convertion = true;
+                    need_manual_implementation = true;
+                }
+                if need_manual_implementation {
+                    writeln!(s, "           {field_name}: /* Insert convertion */,")?;
+                } else {
+                    writeln!(
+                        s,
+                        "           {field_name}: {},",
+                        changed_type.old_type()
+                            .gen_convertion(format!("other.{field_name}"), true, changed_type.new_type())
+                    )?;
+                }
             } else {
                 let mut need_manual_implementation = false;
                 let type_change = changes

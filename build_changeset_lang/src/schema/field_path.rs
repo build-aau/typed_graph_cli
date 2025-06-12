@@ -121,13 +121,6 @@ impl<I> FieldPath<I> {
                 })
             }
         };
-
-        /*
-        Err(ChangeSetError::InvalidAction {
-            action: format!("retrieving fields"),
-            reason: format!("Failed to find filed at {}", self),
-        })
-        */
     }
 
     /// Move from one input type to another
